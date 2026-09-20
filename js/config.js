@@ -34,7 +34,37 @@ const Config = Object.freeze({
         statusEraser: '橡皮: 单击/拖动擦除交点或端点之间的整段',
         statusFill: '填充: 点击封闭区域填色 · 色板可换颜色',
         fillFail: '未找到封闭区域，无法填充',
+        clearConfirm: '确定要清空画布？此操作可撤销',
+        vertexLabelPrompt: '输入顶点名称 (留空则删除)',
         snapSuffix: '吸附'
+    }),
+
+    // 主题配色：默认 (浅色) / 蓝图 (深蓝底、深灰线、红顶点)
+    THEME: Object.freeze({
+        default: {
+            background: '#ffffff',
+            grid: '#f0f0f0',
+            axis: '#e0e0e0',
+            line: '#1e3a8a',
+            lineEndpoint: '#16a34a',
+            circle: '#b91c1c',
+            circleRadiusLine: 'rgba(185, 28, 28, 0.2)',
+            intersection: 'rgba(249, 115, 22, 0.6)',
+            vertexLabel: '#1f2937',
+            vertexLabelBg: 'rgba(255,255,255,0.85)'
+        },
+        blueprint: {
+            background: '#7fb0e6',
+            grid: 'rgba(255,255,255,0.35)',
+            axis: 'rgba(255,255,255,0.5)',
+            line: '#1f2937',
+            lineEndpoint: '#dc2626',
+            circle: '#000000',
+            circleRadiusLine: 'rgba(0, 0, 0, 0.3)',
+            intersection: '#dc2626',
+            vertexLabel: '#ffffff',
+            vertexLabelBg: 'rgba(31, 41, 55, 0.85)'
+        }
     }),
 
     // 油漆桶预设色板 (与 index.html 色板按钮一一对应)
@@ -52,17 +82,10 @@ const Config = Object.freeze({
     // 单击判定阈值 (屏幕像素位移)：小于该值视为单击 → 删除整条曲线
     CLICK_DIST_SCREEN: 4,
 
-    // 配色方案
+    // 配色方案 (绘图/UI 用，与主题无关的部分)
     COLORS: Object.freeze({
-        line: '#1e3a8a',                       // 线段
-        lineEndpoint: '#16a34a',               // 线段端点
-        circle: '#b91c1c',                     // 圆 / 圆心
-        circleRadiusLine: 'rgba(185, 28, 28, 0.2)',  // 半径虚线
-        intersection: 'rgba(249, 115, 22, 0.6)',     // 交点标记
         preview: '#4c7aff',                    // 预览图形
         previewLine: 'rgba(76, 122, 255, 0.5)',      // 预览辅助线
-        grid: '#f0f0f0',                       // 网格
-        axis: '#e0e0e0',                       // 坐标轴
         startPoint: '#f97316',                 // 绘制起点标记
         eraserHighlight: 'rgba(255, 85, 85, 0.4)',   // 橡皮擦除区间高亮
         eraserRing: 'rgba(220, 60, 60, 0.9)',        // 橡皮光圈

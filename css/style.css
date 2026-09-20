@@ -30,7 +30,7 @@ body {
 .canvas-wrapper {
     position: absolute;
     inset: 0;
-    background: #fbfbfb;
+    background: var(--canvas-bg, #ffffff);
 }
 
 canvas {
@@ -40,59 +40,220 @@ canvas {
     width: 100%;
     height: 100%;
     cursor: crosshair;
-    background: #ffffff;
+    background: transparent;
+}
+
+/* ---------- 左上样式面板：线型 + 填充色 ---------- */
+.style-panel {
+    /* 复用 .corner-panel 的浮层，改为横向排列两张卡片 */
+    flex-direction: row;
+    align-items: stretch;
+    gap: 10px;
+}
+
+.style-card {
+    pointer-events: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    color: #ccc;
+}
+
+.style-card-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: #6b7280;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    padding-left: 2px;
+}
+
+/* 线型 segmented control (横向并排) */
+.seg-group {
+    display: flex;
+    flex-direction: row;
+    gap: 6px;
+}
+.seg-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border: none;
+    border-radius: 10px;
+    background: #2a2a2a;
+    color: #aaa;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+.seg-btn:hover { background: #3a3a3a; color: #fff; }
+.seg-btn.active { background: #4c7aff; color: #fff; box-shadow: 0 2px 8px rgba(76, 122, 255, 0.4); }
+.seg-icon {
+    width: 28px;
+    height: 2px;
+    background: currentColor;
+    display: inline-block;
+}
+.seg-dashed {
+    background-image: linear-gradient(to right, currentColor 50%, transparent 50%);
+    background-size: 6px 2px;
+    background-repeat: repeat-x;
+    background-color: transparent;
+}
+
+/* 填充色横向条 (8 预设 + 1 自定义) */
+.swatch-grid {
+    display: flex;
+    flex-direction: row;
+    gap: 6px;
+}
+.swatch-grid .swatch {
+    width: 20px;
+    height: 20px;
+    border-radius: 6px;
+    border: 2px solid rgba(255, 255, 255, 0.18);
+    cursor: pointer;
+    padding: 0;
+    transition: transform 0.12s, border-color 0.12s, box-shadow 0.12s;
+    position: relative;
+}
+.swatch-grid .swatch:hover { transform: scale(1.12); }
+.swatch-grid .swatch.active {
+    border-color: #ffffff;
+    box-shadow: 0 0 0 2px rgba(76, 122, 255, 0.9);
+}
+.swatch-custom {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #ef4444 0%, #ef4444 16.6%, #f97316 16.6%, #f97316 33.2%, #eab308 33.2%, #eab308 49.8%, #22c55e 49.8%, #22c55e 66.4%, #06b6d4 66.4%, #06b6d4 82.9%, #a855f7 82.9%);
+}
+.swatch-custom input[type="color"] {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+    padding: 0;
+    border: 0;
+}
+.swatch-custom-plus {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255, 255, 255, 0.92);
+    font-size: 14px;
+    font-weight: 700;
+    text-shadow: 0 0 2px rgba(0, 0, 0, 0.6);
+    pointer-events: none;
 }
 
 canvas.grabbing {
     cursor: grabbing;
 }
 
-/* ---------- 悬浮工具栏 (毛玻璃 · 底部居中) ---------- */
-.toolbar {
-    position: absolute;
-    bottom: 20px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 20;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 12px;
-    max-width: calc(100vw - 32px);
-    color: #ddd;
-    padding: 10px 18px;
-    border-radius: 40px;
+/* ---------- 沉浸模式 (全屏失败回退) ---------- */
+/* 隐藏所有四角面板，仅显示画布与「退出沉浸」按钮 */
+body.immersive .corner-panel { display: none !important; }
+.immersive-exit { display: none; }
+body.immersive .immersive-exit {
+    display: block;
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    z-index: 30;
+    padding: 6px 14px;
+    border: none;
+    border-radius: 20px;
     background: rgba(30, 30, 30, 0.72);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+    color: #eee;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+body.immersive .immersive-exit:hover { background: rgba(60, 60, 60, 0.85); }
+/* ---------- 四角面板：通用浮层 (无背景，靠按钮自身样式) ---------- */
+.corner-panel {
+    position: absolute;
+    z-index: 20;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+    max-width: calc(100vw - 32px);
+    padding: 0;
+    background: transparent;
+    backdrop-filter: none;
+    box-shadow: none;
+    border-radius: 0;
+}
+.top-left     { top: 14px;    left: 14px; }
+.top-right    { top: 14px;    right: 14px; }
+.bottom-left  { bottom: 14px; left: 14px; }
+.bottom-right { bottom: 14px; right: 14px; }
+
+/* 直尺模式选择面板：固定在工具栏下方右侧 */
+.ruler-kind-panel {
+    top: 74px;          /* 工具栏下方留 12px 间距 */
+    right: 14px;
+    z-index: 19;        /* 比工具栏低 1 级，避免覆盖 */
+}
+.ruler-kind-panel[hidden] { display: none !important; }
+
+/* ---------- 工具栏（右上角） ---------- */
+.toolbar {
+    /* 复用 .corner-panel 的浮层样式，按钮分组在此 */
+    max-width: min(720px, calc(100vw - 28px));
 }
 
 .tool-group {
     display: flex;
     gap: 6px;
-    background: #2a2a2a;
-    padding: 5px;
-    border-radius: 40px;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.6), 0 0 0 1px #3f3f3f inset;
+    background: transparent;
+    padding: 0;
+    border-radius: 0;
+    box-shadow: none;
 }
 
 .tool-btn {
-    background: transparent;
+    background: #2a2a2a;
     border: none;
-    color: #aaa;
+    color: #ccc;
     font-weight: 600;
-    font-size: 14px;
-    padding: 8px 18px;
-    border-radius: 30px;
+    font-size: 11px;
+    padding: 6px 10px;
+    border-radius: 14px;
     cursor: pointer;
     transition: all 0.15s ease;
     letter-spacing: 0.3px;
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 5px;
-    white-space: nowrap;
+    justify-content: center;
+    gap: 2px;
+    min-width: 52px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+.tool-btn .tool-ico {
+    font-size: 18px;
+    line-height: 1;
+}
+.tool-btn .tool-label {
+    font-size: 11px;
+    line-height: 1;
+    font-weight: 600;
 }
 
 .tool-btn:hover {
@@ -112,16 +273,17 @@ canvas.grabbing {
 }
 
 .kind-btn {
-    background: transparent;
+    background: #2a2a2a;
     border: none;
-    color: #999;
+    color: #ccc;
     font-weight: 600;
     font-size: 12px;
     padding: 5px 12px;
-    border-radius: 20px;
+    border-radius: 14px;
     cursor: pointer;
     transition: all 0.15s ease;
     white-space: nowrap;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
 }
 
 .kind-btn:hover {
@@ -134,34 +296,8 @@ canvas.grabbing {
     color: white;
 }
 
-/* ---------- 填充色板 ---------- */
-.swatch {
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    border: 2px solid rgba(255, 255, 255, 0.25);
-    cursor: pointer;
-    padding: 0;
-    transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
-}
-
-.swatch:hover {
-    transform: scale(1.15);
-}
-
-.swatch.active {
-    border-color: #ffffff;
-    box-shadow: 0 0 0 2px rgba(76, 122, 255, 0.9);
-}
-
-#customColor {
-    width: 22px;
-    height: 22px;
-    border: none;
-    background: transparent;
-    cursor: pointer;
-    padding: 0;
-}
+/* ---------- 填充色板（旧版样式，已被侧边面板替代，仅保留通用兜底） ---------- */
+.swatch { box-sizing: border-box; }
 
 .action-btn {
     background: #333;
@@ -203,25 +339,43 @@ canvas.grabbing {
 
 .status {
     font-size: 13px;
-    color: #bbb;
+    color: #ddd;
     background: #2a2a2a;
-    padding: 6px 16px;
+    padding: 8px 16px;
     border-radius: 40px;
     box-shadow: 0 0 0 1px #3f3f3f inset;
-    min-width: 200px;
+    min-width: 220px;
     text-align: center;
     white-space: nowrap;
+}
+
+.toggles {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+/* 左下：仅开关，无状态文字 */
+.bottom-left.toggles-only {
+    /* 复用 .corner-panel 浮层；无 status 在内部时自动贴合 toggle 高度 */
+    padding: 8px 12px;
+    gap: 8px;
+}
+
+.actions {
+    gap: 8px;
 }
 
 /* ---------- 吸附 / 缩放指示器 ---------- */
 .snap-indicator {
     position: absolute;
-    top: 12px;
-    right: 12px;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);   /* 屏幕水平居中，不与右上工具栏冲突 */
     color: white;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 700;
-    padding: 5px 12px;
+    padding: 6px 14px;
     border-radius: 20px;
     opacity: 0;
     transition: opacity 0.15s;
@@ -257,41 +411,10 @@ canvas.grabbing {
     backdrop-filter: blur(4px);
 }
 
-/* ---------- 悬浮图例 (左上角 · 半透明) ---------- */
-.info-bar {
-    position: absolute;
-    top: 14px;
-    left: 14px;
-    z-index: 20;
-    display: flex;
-    gap: 12px;
-    align-items: center;
-    flex-wrap: wrap;
-    max-width: min(620px, calc(100vw - 28px));
-    font-size: 12px;
-    color: #99a3b3;
-    padding: 8px 14px;
-    border-radius: 20px;
-    background: rgba(30, 30, 30, 0.6);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.06) inset;
-    pointer-events: none;
-}
+/* ---------- 图例已移除 (旧 .info-bar 样式保留兜底) ---------- */
+.info-bar { display: none; }
 
-.info-bar span {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-}
-
-.dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    display: inline-block;
-}
-
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
 .dot.red { background: #b91c1c; }
 .dot.green { background: #16a34a; }
 .dot.orange { background: #f97316; }

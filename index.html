@@ -11,42 +11,78 @@
         <div class="canvas-wrapper">
             <canvas id="board"></canvas>
             <div class="snap-indicator" id="snapIndicator">吸附</div>
-            <div class="zoom-indicator" id="zoomIndicator">100%</div>
         </div>
-        <div class="toolbar">
+
+        <!-- 左上：样式面板（仅显示当前工具相关的子面板） -->
+        <div class="corner-panel top-left style-panel" id="stylePanel">
+            <div class="style-card" id="lineStyleCard" title="线条样式">
+                <div class="seg-group" id="lineStyleGroup">
+                    <button class="seg-btn active" data-style="solid" title="实线">
+                        <span class="seg-icon seg-solid"></span>
+                        <span>实线</span>
+                    </button>
+                    <button class="seg-btn" data-style="dashed" title="虚线">
+                        <span class="seg-icon seg-dashed"></span>
+                        <span>虚线</span>
+                    </button>
+                </div>
+            </div>
+            <div class="style-card" id="fillCard" title="填充颜色">
+                <div class="swatch-grid" id="fillPalette">
+                    <button class="swatch active" data-color="#ef4444" style="background:#ef4444" title="#ef4444"></button>
+                    <button class="swatch" data-color="#f97316" style="background:#f97316" title="#f97316"></button>
+                    <button class="swatch" data-color="#eab308" style="background:#eab308" title="#eab308"></button>
+                    <button class="swatch" data-color="#22c55e" style="background:#22c55e" title="#22c55e"></button>
+                    <button class="swatch" data-color="#06b6d4" style="background:#06b6d4" title="#06b6d4"></button>
+                    <button class="swatch" data-color="#3b82f6" style="background:#3b82f6" title="#3b82f6"></button>
+                    <button class="swatch" data-color="#a855f7" style="background:#a855f7" title="#a855f7"></button>
+                    <button class="swatch" data-color="#ec4899" style="background:#ec4899" title="#ec4899"></button>
+                    <label class="swatch swatch-custom" title="自定义颜色">
+                        <input type="color" id="customColor" value="#f97316">
+                        <span class="swatch-custom-plus">+</span>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右上：工具栏 (图标 + 中文) -->
+        <div class="corner-panel top-right toolbar">
             <div class="tool-group">
-                <button id="toolCompass" class="tool-btn active" data-tool="compass">
-                    ⭕ 圆规
+                <button id="toolCompass" class="tool-btn" data-tool="compass">
+                    <span class="tool-ico">⭕</span>
+                    <span class="tool-label">圆规</span>
                 </button>
-                <button id="toolRuler" class="tool-btn" data-tool="ruler">
-                    📏 直尺
+                <button id="toolRuler" class="tool-btn active" data-tool="ruler">
+                    <span class="tool-ico">📏</span>
+                    <span class="tool-label">直尺</span>
                 </button>
                 <button id="toolEraser" class="tool-btn" data-tool="eraser">
-                    🧹 橡皮
+                    <span class="tool-ico">🧹</span>
+                    <span class="tool-label">橡皮</span>
                 </button>
                 <button id="toolFill" class="tool-btn" data-tool="fill">
-                    🪣 填充
+                    <span class="tool-ico">🪣</span>
+                    <span class="tool-label">填充</span>
+                </button>
+                <button id="toolVertex" class="tool-btn" data-tool="vertex">
+                    <span class="tool-ico">🏷️</span>
+                    <span class="tool-label">顶点</span>
                 </button>
             </div>
-            <div class="tool-group sub" id="rulerKindGroup" style="display:none;" title="直尺绘制模式">
+        </div>
+
+        <!-- 右侧直尺模式 (独立面板，放在工具栏下方一行，仅 ruler 工具时显示) -->
+        <div class="corner-panel ruler-kind-panel" id="rulerKindPanel">
+            <div class="tool-group sub" id="rulerKindGroup" title="直尺绘制模式">
                 <button class="kind-btn active" data-kind="segment">线段</button>
                 <button class="kind-btn" data-kind="ray">射线</button>
                 <button class="kind-btn" data-kind="line">直线</button>
             </div>
-            <div class="tool-group sub" id="fillPalette" style="display:none;" title="填充颜色">
-                <button class="swatch active" data-color="#ef4444" style="background:#ef4444" title="填充色"></button>
-                <button class="swatch" data-color="#f97316" style="background:#f97316" title="填充色"></button>
-                <button class="swatch" data-color="#eab308" style="background:#eab308" title="填充色"></button>
-                <button class="swatch" data-color="#22c55e" style="background:#22c55e" title="填充色"></button>
-                <button class="swatch" data-color="#06b6d4" style="background:#06b6d4" title="填充色"></button>
-                <button class="swatch" data-color="#3b82f6" style="background:#3b82f6" title="填充色"></button>
-                <button class="swatch" data-color="#a855f7" style="background:#a855f7" title="填充色"></button>
-                <button class="swatch" data-color="#ec4899" style="background:#ec4899" title="填充色"></button>
-                <input type="color" id="customColor" value="#f97316" title="自定义颜色">
-            </div>
-            <div class="status" id="statusMsg">
-                圆规: 点击圆心 → 拖动定半径
-            </div>
+        </div>
+
+        <!-- 左下：开关 (横平竖直 / 圆周吸附 / 蓝图) -->
+        <div class="corner-panel bottom-left toggles-only">
+            <div class="status" id="statusMsg" style="display:none"></div>
             <label class="toggle-wrap" title="绘制时方向接近水平/垂直 (0.5°内) 自动吸附到轴线">
                 <input type="checkbox" id="axisSnapToggle" checked>
                 横平竖直
@@ -55,24 +91,25 @@
                 <input type="checkbox" id="circleSnapToggle" checked>
                 圆周吸附
             </label>
-            <button class="action-btn small" id="resetViewBtn">重置视野</button>
+            <label class="toggle-wrap" title="启用蓝图配色（蓝底/深灰线/红色顶点）">
+                <input type="checkbox" id="blueprintToggle" checked>
+                蓝图模式
+            </label>
+        </div>
+
+        <!-- 右下：操作按钮 -->
+        <div class="corner-panel bottom-right actions">
+            <button class="action-btn small" id="resetViewBtn" title="重置视野">⟲ 重置</button>
             <button class="action-btn small" id="fullBtn" title="切换全屏">⛶ 全屏</button>
-            <div style="display:flex;gap:8px;">
-                <button id="undoBtn" class="action-btn undo">撤销</button>
-                <button id="clearBtn" class="action-btn">清空</button>
-            </div>
+            <button id="undoBtn" class="action-btn undo small" title="撤销 (Ctrl+Z)">↶ 撤销</button>
+            <button id="clearBtn" class="action-btn small" title="清空画布">🗑 清空</button>
         </div>
-        <div class="info-bar">
-            <span><span class="dot red"></span> 圆心</span>
-            <span><span class="dot green"></span> 线段端点</span>
-            <span><span class="dot orange"></span> 交点(线-线/线-圆/圆-圆)</span>
-            <span><span class="dot purple"></span> 圆周上点</span>
-            <span><span class="dot pink"></span> 线段上投影点</span>
-            <span class="help-tip">💡 滚轮缩放 · 按住滚轮拖拽平移</span>
-        </div>
+
+        <!-- 沉浸模式退出按钮 -->
+        <button id="exitImmersiveBtn" class="immersive-exit" title="退出沉浸模式">⛶ 退出沉浸</button>
     </div>
 
-    <!-- 脚本按依赖顺序加载：配置 → 几何 → 数据 → 视图 → 吸附 → 渲染 → 控制器 -->
+    <!-- 脚本按依赖顺序加载 -->
     <script src="js/config.js"></script>
     <script src="js/geometry.js"></script>
     <script src="js/store.js"></script>

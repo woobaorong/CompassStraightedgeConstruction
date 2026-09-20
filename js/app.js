@@ -12,9 +12,17 @@
     const toolRuler = document.getElementById('toolRuler');
     const toolEraser = document.getElementById('toolEraser');
     const toolFill = document.getElementById('toolFill');
+    const toolVertex = document.getElementById('toolVertex');
     const fillPalette = document.getElementById('fillPalette');
     const customColor = document.getElementById('customColor');
-    const swatchBtns = fillPalette ? Array.from(fillPalette.querySelectorAll('.swatch')) : [];
+    const stylePanel = document.getElementById('stylePanel');
+    const lineStyleCard = document.getElementById('lineStyleCard');
+    const fillCard = document.getElementById('fillCard');
+    const swatchBtns = fillPalette ? Array.from(fillPalette.querySelectorAll('.swatch:not(.swatch-custom)')) : [];
+    const lineStyleGroup = document.getElementById('lineStyleGroup');
+    const styleBtns = lineStyleGroup ? Array.from(lineStyleGroup.querySelectorAll('.seg-btn')) : [];
+    const rulerKindPanel = document.getElementById('rulerKindPanel');
+    const blueprintToggle = document.getElementById('blueprintToggle');
     const clearBtn = document.getElementById('clearBtn');
     const undoBtn = document.getElementById('undoBtn');
     const resetViewBtn = document.getElementById('resetViewBtn');
@@ -26,8 +34,10 @@
 
     // ---------- 应用状态 ----------
     const state = {
-        currentTool: 'compass',
+        currentTool: 'ruler',       // 默认线段
         rulerKind: 'segment',       // 直尺模式: segment | ray | line
+        lineStyle: 'solid',         // 实线 / 虚线
+        theme: 'blueprint',        // 默认蓝图配色
         phase: 'idle',              // idle | started
         startPoint: null,           // 世界坐标
         mouseWorld: { x: 0, y: 0 }, // 鼠标世界坐标
@@ -36,7 +46,8 @@
         snappedPoint: null,         // 世界坐标
         snappedType: null,
         snappedLabel: '',
-        currentColor: Config.FILL_COLORS[0]   // 油漆桶当前颜色
+        currentColor: Config.FILL_COLORS[0],   // 油漆桶当前颜色
+        vertexHover: null           // 顶点工具 hover 的节点 (世界坐标)
     };
 
     // 拖拽平移状态
@@ -205,11 +216,12 @@
     function updateStatusForTool() {
         if (state.currentTool === 'eraser') { updateStatus(Config.TEXT.statusEraser); return; }
         if (state.currentTool === 'fill') { updateStatus(Config.TEXT.statusFill); return; }
+        if (state.currentTool === 'vertex') { updateStatus('顶点: 点击节点为其命名 (留空删除)'); return; }
         updateStatus(state.currentTool === 'compass' ? Config.TEXT.statusCompass : Config.TEXT.statusRuler);
     }
 
     function updateZoomIndicator() {
-        zoomIndicator.textContent = Math.round(View.getState().scale * 100) + '%';
+        if (zoomIndicator) zoomIndicator.textContent = Math.round(View.getState().scale * 100) + '%';
     }
 
     function showSnapIndicator(type, label) {
@@ -250,6 +262,7 @@
 
     function clearAll() {
         if (Store.isEmpty()) return;
+        if (!window.confirm(Config.TEXT.clearConfirm)) return;
         Store.saveHistory();
         Store.clear();
         cancelDrawing();
@@ -263,15 +276,28 @@
         if (state.phase === 'started') cancelDrawing();
         resetErase();
         state.currentTool = tool;
+        state.vertexHover = null;
         toolCompass.classList.toggle('active', tool === 'compass');
         toolRuler.classList.toggle('active', tool === 'ruler');
         toolEraser.classList.toggle('active', tool === 'eraser');
         toolFill.classList.toggle('active', tool === 'fill');
+        if (toolVertex) toolVertex.classList.toggle('active', tool === 'vertex');
+        // 直尺模式子面板：独立放在工具栏下一行
         rulerKindGroup.style.display = tool === 'ruler' ? 'flex' : 'none';
-        fillPalette.style.display = tool === 'fill' ? 'flex' : 'none';
+        if (rulerKindPanel) rulerKindPanel.style.display = tool === 'ruler' ? 'flex' : 'none';
+        // 左上角面板：绘制类工具显示线型，填充工具显示色板，其他工具隐藏整个面板
+        const showLine = (tool === 'compass' || tool === 'ruler');
+        const showFill = (tool === 'fill');
+        if (lineStyleCard) lineStyleCard.style.display = showLine ? '' : 'none';
+        if (fillCard) fillCard.style.display = showFill ? '' : 'none';
+        if (stylePanel) stylePanel.style.display = (showLine || showFill) ? 'flex' : 'none';
         updateStatusForTool();
         render();
     }
+
+// 初始同步 rulerKindGroup 可见性（默认 ruler 工具需要显示线段/射线/直线组）
+if (rulerKindGroup) rulerKindGroup.style.display = 'flex';
+if (rulerKindPanel) rulerKindPanel.style.display = 'flex';
 
     // 切换填充颜色 (预设色板 / 自定义取色器)
     function setFillColor(color, activeBtn) {
@@ -285,6 +311,52 @@
         kindBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.kind === kind));
         if (state.phase === 'started') updatePreview();
         render();
+    }
+
+    // 切换线型 (实线/虚线)
+    function setLineStyle(style) {
+        state.lineStyle = style;
+        styleBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.style === style));
+    }
+
+    // 切换主题 (default/blueprint)
+    function setTheme(theme) {
+        state.theme = theme;
+        document.documentElement.style.setProperty('--canvas-bg', Config.THEME[theme].background);
+        render();
+    }
+
+    // ---------- 顶点工具：节点拾取 ----------
+    // 收集所有节点 (端点 + 交点 + 圆心)，按屏幕距离返回最近的 (距离, worldX, worldY)
+    function pickVertex(world, radiusScreen) {
+        const mScreen = View.worldToScreen(world.x, world.y);
+        const EPS = 1e-6;
+        const seen = new Map();
+        const add = (x, y) => {
+            const k = Math.round(x / EPS) + ',' + Math.round(y / EPS);
+            if (!seen.has(k)) seen.set(k, { x: x, y: y });
+        };
+        Store.getCurves().forEach(c => {
+            if (c.type === 'line') {
+                add(c.p0.x + c.dir.x * c.tMin, c.p0.y + c.dir.y * c.tMin);
+                add(c.p0.x + c.dir.x * c.tMax, c.p0.y + c.dir.y * c.tMax);
+            } else {
+                add(c.cx, c.cy);
+            }
+        });
+        const curves = Store.getCurves();
+        for (let i = 0; i < curves.length; i++) {
+            for (let j = i + 1; j < curves.length; j++) {
+                Geometry.curveIntersection(curves[i], curves[j]).forEach(p => add(p.x, p.y));
+            }
+        }
+        let best = null;
+        seen.forEach(v => {
+            const sp = View.worldToScreen(v.x, v.y);
+            const d = Math.hypot(sp.x - mScreen.x, sp.y - mScreen.y);
+            if (d <= radiusScreen && (!best || d < best.d)) best = { d: d, x: v.x, y: v.y };
+        });
+        return best;
     }
 
     // ---------- 坐标换算 ----------
@@ -318,10 +390,10 @@
 
         if (state.currentTool === 'compass') {
             const r = Math.hypot(target.x - sx, target.y - sy);
-            state.previewCurve = r < 1 ? null : { type: 'circle', cx: sx, cy: sy, r: r, a0: 0, a1: Math.PI * 2 };
+            state.previewCurve = r < 1 ? null : { type: 'circle', cx: sx, cy: sy, r: r, a0: 0, a1: Math.PI * 2, lineStyle: state.lineStyle };
         } else {
             const dist = Math.hypot(target.x - sx, target.y - sy);
-            state.previewCurve = dist < 1 ? null : Geometry.makeLineCurveData(state.startPoint, target, state.rulerKind);
+            state.previewCurve = dist < 1 ? null : Object.assign(Geometry.makeLineCurveData(state.startPoint, target, state.rulerKind), { lineStyle: state.lineStyle });
         }
     }
 
@@ -341,10 +413,8 @@
             e.preventDefault();
             isPanning = true;
             panStart = {
-                screenX: state.mouseScreen.x,
-                screenY: state.mouseScreen.y,
-                offsetX: View.getState().offsetX,
-                offsetY: View.getState().offsetY
+                lastX: state.mouseScreen.x,
+                lastY: state.mouseScreen.y
             };
             canvas.classList.add('grabbing');
             return;
@@ -382,6 +452,21 @@
                 updateStatus(Config.TEXT.fillFail);
             }
             render();
+            return;
+        }
+
+        // 顶点工具: 拾取最近节点，prompt 命名
+        if (state.currentTool === 'vertex') {
+            const pick = pickVertex(state.mouseWorld, Config.SNAP_DIST_SCREEN);
+            if (pick) {
+                const current = Store.getVertexLabel(pick.x, pick.y) || '';
+                const name = window.prompt(Config.TEXT.vertexLabelPrompt, current);
+                if (name !== null) {
+                    Store.saveHistory();
+                    Store.setVertexLabel(pick.x, pick.y, name.trim());
+                    render();
+                }
+            }
             return;
         }
 
@@ -425,12 +510,14 @@
             if (r * scale >= Config.MIN_SHAPE_SCREEN) {
                 Store.saveHistory();
                 created = Store.makeCircleCurve(sx, sy, r);
+                if (created) created.lineStyle = state.lineStyle;
             }
         } else {
             const dist = Math.hypot(useX - sx, useY - sy);
             if (dist * scale >= Config.MIN_SHAPE_SCREEN) {
                 Store.saveHistory();
                 created = Store.makeLineCurve(state.startPoint, { x: useX, y: useY }, state.rulerKind);
+                if (created) created.lineStyle = state.lineStyle;
             }
         }
         // 新曲线可能把已有填充区域分割 → 重新提取并补建被分开的部分
@@ -440,15 +527,28 @@
     }
 
     function onMouseMove(e) {
-        // 平移中
+        // 平移中：用「上次坐标 → 本次坐标」的增量，避免依赖 mousedown 初始点
         if (isPanning && panStart) {
             const screen = getMouseScreenCoords(e);
-            View.panBy(screen.x - panStart.screenX, screen.y - panStart.screenY);
+            const dx = screen.x - panStart.lastX;
+            const dy = screen.y - panStart.lastY;
+            if (dx !== 0 || dy !== 0) {
+                View.panBy(dx, dy);
+                panStart.lastX = screen.x;
+                panStart.lastY = screen.y;
+            }
             return;
         }
 
         // 普通移动
         updateMouseWorld(e);
+
+        // 顶点工具 hover
+        if (state.currentTool === 'vertex') {
+            state.vertexHover = pickVertex(state.mouseWorld, Config.SNAP_DIST_SCREEN);
+            render();
+            return;
+        }
 
         // 橡皮擦移动: 笔画采样 / 悬浮预览
         if (state.currentTool === 'eraser') {
@@ -487,11 +587,12 @@
     }
 
     function onMouseUp(e) {
-        if (e.button === 1) {
+        // 中键/平移结束：无论 button 如何（mouseleave 时 button 不可靠），只要不再按下就清状态
+        if (isPanning) {
             isPanning = false;
             panStart = null;
             canvas.classList.remove('grabbing');
-            return;
+            if (e.button === 1) return;   // 真的是中键释放，直接返回
         }
 
         // 橡皮擦结束 → 整段移除所有被涂抹的节点区间 (单击与拖动同规则)
@@ -526,13 +627,23 @@
     canvas.addEventListener('mouseup', onMouseUp);
     canvas.addEventListener('mouseleave', onMouseUp);
     canvas.addEventListener('auxclick', onAuxClick);
-    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    canvas.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        // 右击 = 取消正在进行的绘制，等同 ESC
+        if (state.phase === 'started') {
+            cancelDrawing();
+            updateStatusForTool();
+            render();
+        }
+    });
 
     toolCompass.addEventListener('click', () => setTool('compass'));
     toolRuler.addEventListener('click', () => setTool('ruler'));
     toolEraser.addEventListener('click', () => setTool('eraser'));
     toolFill.addEventListener('click', () => setTool('fill'));
+    if (toolVertex) toolVertex.addEventListener('click', () => setTool('vertex'));
     kindBtns.forEach(btn => btn.addEventListener('click', () => setRulerKind(btn.dataset.kind)));
+    styleBtns.forEach(btn => btn.addEventListener('click', () => setLineStyle(btn.dataset.style)));
     swatchBtns.forEach(btn => btn.addEventListener('click', () => setFillColor(btn.dataset.color, btn)));
     customColor.addEventListener('input', (e) => setFillColor(e.target.value, null));
     clearBtn.addEventListener('click', clearAll);
@@ -540,6 +651,7 @@
     resetViewBtn.addEventListener('click', () => View.reset());
     circleSnapToggle.addEventListener('change', (e) => Snap.setCircleSnapEnabled(e.target.checked));
     axisSnapToggle.addEventListener('change', (e) => Snap.setAxisSnapEnabled(e.target.checked));
+    if (blueprintToggle) blueprintToggle.addEventListener('change', (e) => setTheme(e.target.checked ? 'blueprint' : 'default'));
 
     // 绘制中启用水平/垂直吸附的上下文
     function drawCtx() {
@@ -547,13 +659,74 @@
     }
 
     // 原生全屏切换
+    // 注意：浏览器在 file:// 协议下会拒绝 requestFullscreen (SecurityError)，
+    // 此时回退到「沉浸式模式」：隐藏所有悬浮面板，让画布真正占满视口。
+    function goFullscreen() {
+        const el = document.documentElement;
+        const req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+        if (!req) { immersiveOn(); return; }
+        req.call(el).catch(err => {
+            console.warn('requestFullscreen 失败，回退沉浸式模式:', err && err.message);
+            immersiveOn();
+        });
+    }
+
+    function exitFullscreen() {
+        const exit = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+        if (exit) exit.call(document).catch(() => {});
+    }
+
+    function immersiveOn() {
+        document.body.classList.add('immersive');
+        updateFullscreenLabel(true);
+    }
+    function immersiveOff() {
+        document.body.classList.remove('immersive');
+        updateFullscreenLabel(false);
+    }
+    function isImmersive() { return document.body.classList.contains('immersive'); }
+    function updateFullscreenLabel(active) {
+        if (!fullBtn) return;
+        fullBtn.textContent = active ? '⛶ 退出' : '⛶ 全屏';
+        fullBtn.title = active ? '退出全屏/沉浸模式' : '切换全屏';
+    }
+
     fullBtn.addEventListener('click', () => {
-        if (document.fullscreenElement) {
-            document.exitFullscreen();
-        } else {
-            document.documentElement.requestFullscreen().catch(() => {});
+        const inFs = document.fullscreenElement || document.webkitFullscreenElement;
+        // 先处理原生全屏退出（包括请求失败被 reject 的回退场景）
+        if (inFs) {
+            exitFullscreen();
+            // 异步保证退出完成后再清 immersive (fullscreenchange 会触发，但万一事件没收到)
+            setTimeout(() => {
+                if (!document.fullscreenElement && !document.webkitFullscreenElement) immersiveOff();
+            }, 100);
+            return;
         }
+        if (isImmersive()) {
+            immersiveOff();
+            return;
+        }
+        goFullscreen();
     });
+
+    // 监听原生全屏状态变化（如用户按 Esc 退出）
+    ['fullscreenchange', 'webkitfullscreenchange', 'msfullscreenchange'].forEach(ev => {
+        document.addEventListener(ev, () => {
+            if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+                immersiveOff();
+            } else {
+                updateFullscreenLabel(true);
+            }
+        });
+    });
+
+    const exitImmersiveBtn = document.getElementById('exitImmersiveBtn');
+    if (exitImmersiveBtn) {
+        exitImmersiveBtn.addEventListener('click', () => {
+            if (document.fullscreenElement || document.webkitFullscreenElement) exitFullscreen();
+            else immersiveOff();
+        });
+    }
 
     // 窗口尺寸变化 → 画布自适应 (铺满视口 + HiDPI)
     const resizeObserver = new ResizeObserver(() => {
@@ -597,7 +770,17 @@
     });
 
     // 画布初始为空 (todo: 初始不要有任何东西)
-    updateZoomIndicator();
-    render();
-    updateStatusForTool();
+updateZoomIndicator();
+// 初始同步主题 CSS 变量 (默认蓝图时背景已是蓝色)
+document.documentElement.style.setProperty('--canvas-bg', Config.THEME[state.theme].background);
+// 初始同步左上角样式面板的可见性（与当前工具匹配）
+if (stylePanel) {
+    const showLine = (state.currentTool === 'compass' || state.currentTool === 'ruler');
+    const showFill = (state.currentTool === 'fill');
+    if (lineStyleCard) lineStyleCard.style.display = showLine ? '' : 'none';
+    if (fillCard) fillCard.style.display = showFill ? '' : 'none';
+    stylePanel.style.display = (showLine || showFill) ? 'flex' : 'none';
+}
+render();
+updateStatusForTool();
 })();

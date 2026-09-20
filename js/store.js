@@ -7,11 +7,12 @@ const Store = (() => {
 
     let curves = [];    // 统一曲线数组
     let fills = [];     // 填充区域 (P7 引入)
+    let vertexLabels = {};  // 顶点命名 (key = "xE6,yE6" → 名称字符串)
     let nextId = 1;
-    let history = [];   // 快照栈 { curves, fills }
+    let history = [];   // 快照栈 { curves, fills, vertexLabels }
 
     function snapshot() {
-        return JSON.parse(JSON.stringify({ curves: curves, fills: fills }));
+        return JSON.parse(JSON.stringify({ curves: curves, fills: fills, vertexLabels: vertexLabels }));
     }
 
     function saveHistory() {
@@ -25,11 +26,12 @@ const Store = (() => {
         const s = history.pop();
         curves = s.curves;
         fills = s.fills || [];
+        vertexLabels = s.vertexLabels || {};
         return true;
     }
 
     function addCurve(data) {
-        const c = Object.assign({ id: nextId++ }, data);
+        const c = Object.assign({ id: nextId++, lineStyle: data.lineStyle || 'solid' }, data);
         curves.push(c);
         return c;
     }
@@ -245,20 +247,33 @@ const Store = (() => {
     function clear() {
         curves = [];
         fills = [];
+        vertexLabels = {};
     }
 
     function isEmpty() {
         return curves.length === 0 && fills.length === 0;
     }
 
+    // 顶点命名 (key 坐标精度 1e-6，与 renderer.js 一致)
+    const EPS_VL = 1e-6;
+    function vertexKey(x, y) { return Math.round(x / EPS_VL) + ',' + Math.round(y / EPS_VL); }
+    function setVertexLabel(x, y, name) {
+        const k = vertexKey(x, y);
+        if (name && name.length) vertexLabels[k] = name;
+        else delete vertexLabels[k];
+    }
+    function getVertexLabel(x, y) { return vertexLabels[vertexKey(x, y)] || null; }
+
     // 返回内部数组引用（渲染/吸附高频访问，避免拷贝；外部只读，勿直接修改）
     function getCurves() { return curves; }
     function getFills() { return fills; }
+    function getVertexLabels() { return vertexLabels; }
 
     return Object.freeze({
         saveHistory, undo,
         addCurve, makeLineCurve, makeCircleCurve, removeCurve, curveById, splitCurve,
         addFill, refillFills,
-        clear, isEmpty, getCurves, getFills
+        clear, isEmpty, getCurves, getFills,
+        vertexKey, setVertexLabel, getVertexLabel, getVertexLabels
     });
 })();

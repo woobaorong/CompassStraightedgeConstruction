@@ -10,6 +10,7 @@ const Renderer = (() => {
     let canvasEl = null;  // 画布元素引用
     let W = 0;            // 画布宽 (CSS 像素，坐标计算均基于此)
     let H = 0;            // 画布高 (CSS 像素)
+    let currentState = null;  // 最近一次 render 传入的状态，供各 draw* 子函数读取
 
     function init(canvas) {
         canvasEl = canvas;
@@ -33,15 +34,20 @@ const Renderer = (() => {
      *     mouseWorld, currentTool, ... } (后续阶段扩展选中/橡皮等字段)
      */
     function render(state) {
-        ctx.clearRect(0, 0, W, H);
+        currentState = state;
+        const theme = Config.THEME[state.theme || 'default'];
+        ctx.fillStyle = theme.background;
+        ctx.fillRect(0, 0, W, H);
 
         drawGrid();
         drawFills();
         drawCurves();
         drawErase(state);
         drawIntersectionMarkers();
+        drawVertexLabels(state);
         drawPreview(state);
         drawSnapHighlight(state);
+        drawVertexHover(state);
         drawStartMarker(state);
     }
 
@@ -59,6 +65,7 @@ const Renderer = (() => {
     // ---------- 动态网格 ----------
     function drawGrid() {
         const view = View.getState();
+        const theme = Config.THEME[(currentState && currentState.theme) || 'default'];
         ctx.save();
 
         // 决定网格间距 (根据缩放自动调整)
@@ -83,7 +90,7 @@ const Renderer = (() => {
             ctx.beginPath();
             ctx.moveTo(sp.x, 0);
             ctx.lineTo(sp.x, H);
-            ctx.strokeStyle = Config.COLORS.grid;
+            ctx.strokeStyle = theme.grid;
             ctx.lineWidth = 0.8;
             ctx.stroke();
         }
@@ -93,7 +100,7 @@ const Renderer = (() => {
             ctx.beginPath();
             ctx.moveTo(0, sp.y);
             ctx.lineTo(W, sp.y);
-            ctx.strokeStyle = Config.COLORS.grid;
+            ctx.strokeStyle = theme.grid;
             ctx.lineWidth = 0.8;
             ctx.stroke();
         }
@@ -103,24 +110,28 @@ const Renderer = (() => {
         ctx.beginPath();
         ctx.moveTo(originScreen.x, 0);
         ctx.lineTo(originScreen.x, H);
-        ctx.strokeStyle = Config.COLORS.axis;
+        ctx.strokeStyle = theme.axis;
         ctx.lineWidth = 1.2;
         ctx.stroke();
         ctx.beginPath();
         ctx.moveTo(0, originScreen.y);
         ctx.lineTo(W, originScreen.y);
+        ctx.strokeStyle = theme.axis;
+        ctx.lineWidth = 1.2;
         ctx.stroke();
 
         ctx.restore();
     }
 
     // ---------- 单条曲线绘制核心 ----------
-    function drawCurve(c, strokeStyle, lineWidth) {
+    function drawCurve(c, strokeStyle, lineWidth, theme) {
         const view = View.getState();
         ctx.save();
         ctx.strokeStyle = strokeStyle;
         ctx.lineWidth = lineWidth;
         ctx.lineCap = 'round';
+        if (c.lineStyle === 'dashed') ctx.setLineDash([6, 5]);
+        else ctx.setLineDash([]);
 
         if (c.type === 'line') {
             // 裁剪到视口 (对线段也无害，可裁掉屏外部分)
@@ -136,7 +147,7 @@ const Renderer = (() => {
             ctx.stroke();
 
             // 真实端点圆点 (屏幕尺寸固定)
-            ctx.fillStyle = Config.COLORS.lineEndpoint;
+            ctx.fillStyle = theme.lineEndpoint;
             Geometry.curveEndpoints(c).forEach(e => {
                 const sp = View.worldToScreen(e.x, e.y);
                 ctx.beginPath();
@@ -153,7 +164,7 @@ const Renderer = (() => {
             }
 
             // 圆心
-            ctx.fillStyle = Config.COLORS.circle;
+            ctx.fillStyle = theme.circle;
             ctx.beginPath();
             ctx.arc(cScreen.x, cScreen.y, 4, 0, 2 * Math.PI);
             ctx.fill();
@@ -163,7 +174,7 @@ const Renderer = (() => {
                 ctx.beginPath();
                 ctx.moveTo(cScreen.x, cScreen.y);
                 ctx.lineTo(cScreen.x + rScreen, cScreen.y);
-                ctx.strokeStyle = Config.COLORS.circleRadiusLine;
+                ctx.strokeStyle = theme.circleRadiusLine;
                 ctx.lineWidth = 1;
                 ctx.setLineDash([4, 4]);
                 ctx.stroke();
@@ -174,9 +185,10 @@ const Renderer = (() => {
 
     // ---------- 所有曲线 ----------
     function drawCurves() {
+        const theme = Config.THEME[(currentState && currentState.theme) || 'default'];
         Store.getCurves().forEach(c => {
-            const color = c.type === 'line' ? Config.COLORS.line : Config.COLORS.circle;
-            drawCurve(c, color, 2);
+            const color = c.type === 'line' ? theme.line : theme.circle;
+            drawCurve(c, color, 2, theme);
         });
     }
 
@@ -258,8 +270,9 @@ const Renderer = (() => {
     // ---------- 交点标记 (任意两类曲线之间) ----------
     function drawIntersectionMarkers() {
         const curves = Store.getCurves();
+        const theme = Config.THEME[(currentState && currentState.theme) || 'default'];
         ctx.save();
-        ctx.fillStyle = Config.COLORS.intersection;
+        ctx.fillStyle = theme.intersection;
         for (let i = 0; i < curves.length; i++) {
             for (let j = i + 1; j < curves.length; j++) {
                 Geometry.curveIntersection(curves[i], curves[j]).forEach(p => {
@@ -270,6 +283,56 @@ const Renderer = (() => {
                 });
             }
         }
+        ctx.restore();
+    }
+
+    // ---------- 顶点命名标签 ----------
+    // 收集所有"节点"(端点+交点+圆心)，按 EPS_NODE 去重后绘制 Store 中已命名的标签
+    function drawVertexLabels(state) {
+        const labels = Store.getVertexLabels();
+        if (!labels || !Object.keys(labels).length) return;
+        const theme = Config.THEME[(currentState && currentState.theme) || 'default'];
+        const curves = Store.getCurves();
+        const EPS = 1e-6;
+        const seen = [];   // { x, y, key }
+        const keyOf = (x, y) => Math.round(x / EPS) + ',' + Math.round(y / EPS);
+        const pushIfNew = (x, y) => {
+            const k = keyOf(x, y);
+            if (seen.some(s => s.key === k)) return;
+            seen.push({ x: x, y: y, key: k });
+        };
+        curves.forEach(c => {
+            if (c.type === 'line') {
+                pushIfNew(c.p0.x + c.dir.x * c.tMin, c.p0.y + c.dir.y * c.tMin);
+                pushIfNew(c.p0.x + c.dir.x * c.tMax, c.p0.y + c.dir.y * c.tMax);
+            } else {
+                pushIfNew(c.cx, c.cy);
+            }
+        });
+        for (let i = 0; i < curves.length; i++) {
+            for (let j = i + 1; j < curves.length; j++) {
+                Geometry.curveIntersection(curves[i], curves[j]).forEach(p => pushIfNew(p.x, p.y));
+            }
+        }
+        ctx.save();
+        ctx.font = '600 12px system-ui, "Segoe UI", sans-serif';
+        ctx.textBaseline = 'middle';
+        seen.forEach(n => {
+            const mapKey = keyOf(n.x, n.y);
+            const name = labels[mapKey];
+            if (!name) return;
+            const sp = View.worldToScreen(n.x, n.y);
+            const w = ctx.measureText(name).width;
+            ctx.fillStyle = theme.vertexLabelBg;
+            const padX = 5, h = 18;
+            const rx = sp.x + 8, ry = sp.y - h / 2, rw = w + padX * 2;
+            ctx.beginPath();
+            if (ctx.roundRect) ctx.roundRect(rx, ry, rw, h, 4);
+            else ctx.rect(rx, ry, rw, h);
+            ctx.fill();
+            ctx.fillStyle = theme.vertexLabel;
+            ctx.fillText(name, rx + padX, sp.y);
+        });
         ctx.restore();
     }
 
@@ -362,6 +425,22 @@ const Renderer = (() => {
         ctx.arc(sp.x, sp.y, 4, 0, 2 * Math.PI);
         ctx.fillStyle = scheme.color;
         ctx.fill();
+        ctx.restore();
+    }
+
+    // ---------- 顶点工具 hover 高亮 ----------
+    function drawVertexHover(state) {
+        if (!state || state.currentTool !== 'vertex' || !state.vertexHover) return;
+        const sp = View.worldToScreen(state.vertexHover.x, state.vertexHover.y);
+        const theme = Config.THEME[(currentState && currentState.theme) || 'default'];
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(sp.x, sp.y, 11, 0, 2 * Math.PI);
+        ctx.strokeStyle = theme.lineEndpoint;
+        ctx.lineWidth = 2.5;
+        ctx.setLineDash([3, 3]);
+        ctx.stroke();
+        ctx.setLineDash([]);
         ctx.restore();
     }
 
