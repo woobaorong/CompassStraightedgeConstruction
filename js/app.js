@@ -10,20 +10,25 @@
     const zoomIndicator = document.getElementById('zoomIndicator');
     const toolCompass = document.getElementById('toolCompass');
     const toolRuler = document.getElementById('toolRuler');
+    const toolEraser = document.getElementById('toolEraser');
     const clearBtn = document.getElementById('clearBtn');
     const undoBtn = document.getElementById('undoBtn');
     const resetViewBtn = document.getElementById('resetViewBtn');
     const circleSnapToggle = document.getElementById('circleSnapToggle');
+    const axisSnapToggle = document.getElementById('axisSnapToggle');
+    const fullBtn = document.getElementById('fullBtn');
+    const rulerKindGroup = document.getElementById('rulerKindGroup');
+    const kindBtns = rulerKindGroup ? Array.from(rulerKindGroup.querySelectorAll('.kind-btn')) : [];
 
     // ---------- 应用状态 ----------
     const state = {
         currentTool: 'compass',
+        rulerKind: 'segment',       // 直尺模式: segment | ray | line
         phase: 'idle',              // idle | started
         startPoint: null,           // 世界坐标
         mouseWorld: { x: 0, y: 0 }, // 鼠标世界坐标
         mouseScreen: { x: 0, y: 0 },// 鼠标屏幕坐标
-        previewCircle: null,
-        previewLine: null,
+        previewCurve: null,         // 预览曲线 (统一曲线结构，无 id)
         snappedPoint: null,         // 世界坐标
         snappedType: null,
         snappedLabel: ''
@@ -32,6 +37,156 @@
     // 拖拽平移状态
     let isPanning = false;
     let panStart = null;            // { screenX, screenY, offsetX, offsetY }
+
+    // 橡皮擦笔画状态
+    const erase = {
+        active: false,
+        lastWorld: null,            // 上次采样点 (世界坐标)
+        hits: new Map()             // curveId -> { curve, params: [] }
+    };
+
+    // 拾取曲线 (光圈半径内最近者)：返回 { curve, t, dScreen } 或 null
+    function pickCurve(world, radiusScreen) {
+        let best = null;
+        const mScreen = View.worldToScreen(world.x, world.y);
+        Store.getCurves().forEach(c => {
+            const cp = Geometry.closestPointOnCurve(c, world.x, world.y);
+            const cpScreen = View.worldToScreen(cp.x, cp.y);
+            const dScreen = Math.hypot(cpScreen.x - mScreen.x, cpScreen.y - mScreen.y);
+            if (dScreen <= radiusScreen && (!best || dScreen < best.dScreen)) {
+                best = { curve: c, t: cp.t, dScreen: dScreen };
+            }
+        });
+        return best;
+    }
+
+    // ---------- 节点区间擦除 ----------
+    // 擦除语义: 曲线被「节点」(真实端点 + 与其他曲线的交点) 分成若干段，
+    // 擦除整段移除 — 两个点之间删那段；射线/直线无点的一侧删整侧
+
+    // 曲线的节点参数 (升序去重)
+    function curveNodes(c) {
+        const ts = [];
+        if (c.type === 'line') {
+            if (c.kind === 'segment' || c.kind === 'piece') ts.push(c.tMin, c.tMax);
+            else if (c.kind === 'ray') ts.push(c.tMin);
+        } else if (!Geometry.isFullCircle(c)) {
+            ts.push(c.a0, c.a1);
+        }
+        Store.getCurves().forEach(o => {
+            if (o.id === c.id) return;
+            Geometry.curveIntersection(c, o).forEach(p => ts.push(p.t1));
+        });
+        ts.sort((a, b) => a - b);
+        const out = [];
+        ts.forEach(t => {
+            if (!out.length || t - out[out.length - 1] > 1e-6) out.push(t);
+        });
+        return out;
+    }
+
+    // 合并重叠/相接的参数区间
+    function mergeRanges(ranges) {
+        if (!ranges.length) return [];
+        const sorted = ranges.slice().sort((a, b) => a.from - b.from);
+        const out = [{ from: sorted[0].from, to: sorted[0].to }];
+        for (let i = 1; i < sorted.length; i++) {
+            const last = out[out.length - 1];
+            if (sorted[i].from <= last.to + 1e-9) {
+                if (sorted[i].to > last.to) last.to = sorted[i].to;
+            } else {
+                out.push({ from: sorted[i].from, to: sorted[i].to });
+            }
+        }
+        return out;
+    }
+
+    // 把采样参数扩展为所在的节点区间 (整段移除)，返回合并后的擦除区间
+    function nodeIntervals(c, params) {
+        const dom = c.type === 'line' ? { from: c.tMin, to: c.tMax } : { from: c.a0, to: c.a1 };
+        const span = dom.to - dom.from;
+        const full = c.type === 'circle' && Geometry.isFullCircle(c);
+        const nodes = curveNodes(c);
+        const cuts = [];
+        params.forEach(t => {
+            let prev = null, next = null;
+            for (let i = 0; i < nodes.length; i++) {
+                if (nodes[i] <= t + 1e-9) prev = nodes[i];
+                if (next === null && nodes[i] >= t - 1e-9) next = nodes[i];
+            }
+            let from = prev === null ? dom.from : prev;
+            let to = next === null ? dom.to : next;
+            if (full && nodes.length) {
+                if (prev === null) from = nodes[nodes.length - 1] - span;   // 环绕
+                if (next === null) to = nodes[0] + span;
+            }
+            if (to - from >= span - 1e-9) {
+                cuts.push({ from: dom.from, to: dom.to });                  // 无节点 → 整条
+            } else if (from < dom.from - 1e-9) {
+                cuts.push({ from: dom.from, to: to });                      // 环绕区间拆两段
+                cuts.push({ from: from + span, to: dom.to });
+            } else if (to > dom.to + 1e-9) {
+                cuts.push({ from: from, to: dom.to });
+                cuts.push({ from: dom.from, to: to - span });
+            } else {
+                cuts.push({ from: from, to: to });
+            }
+        });
+        return mergeRanges(cuts).filter(r => r.to - r.from > 1e-9);
+    }
+
+    // 汇总当前擦除预览数据
+    function eraserView(cursor) {
+        const hits = [];
+        erase.hits.forEach((v, curveId) => {
+            hits.push({ curveId: curveId, ranges: nodeIntervals(v.curve, v.params) });
+        });
+        return { hits: hits, hover: null, cursor: cursor || null };
+    }
+
+    // 悬浮预览: 光圈下曲线将被整段移除的节点区间
+    function hoverEraseView() {
+        const pick = pickCurve(state.mouseWorld, Config.ERASER_RADIUS_SCREEN);
+        let hover = null;
+        if (pick) {
+            hover = { curveId: pick.curve.id, ranges: nodeIntervals(pick.curve, [pick.t]) };
+        }
+        return { hits: [], hover: hover, cursor: { x: state.mouseScreen.x, y: state.mouseScreen.y } };
+    }
+
+    // 记录一个擦除采样点
+    function addEraseSample(world) {
+        const pick = pickCurve(world, Config.ERASER_RADIUS_SCREEN);
+        if (!pick) return;
+        let entry = erase.hits.get(pick.curve.id);
+        if (!entry) {
+            entry = { curve: pick.curve, params: [] };
+            erase.hits.set(pick.curve.id, entry);
+        }
+        entry.params.push(pick.t);
+    }
+
+    // 参数补采: 笔画两端都落在同一曲线上、且曲线弧长不超过鼠标位移预算时，
+    // 线性补齐中间参数 (避免折线弦偏离弧线造成的采样空洞)
+    function fillParamGaps(entry, budgetWorld) {
+        const ps = entry.params;
+        if (ps.length < 2) return;
+        const t1 = ps[ps.length - 2], t2 = ps[ps.length - 1];
+        const arc = entry.curve.type === 'line'
+            ? Math.abs(t2 - t1)
+            : Math.abs(t2 - t1) * entry.curve.r;
+        if (arc > budgetWorld) return;
+        const scale = View.getState().scale;
+        const n = Math.max(1, Math.min(200, Math.ceil(arc * scale / 4)));
+        for (let i = 1; i < n; i++) ps.push(t1 + (t2 - t1) * i / n);
+    }
+
+    function resetErase() {
+        erase.active = false;
+        erase.lastWorld = null;
+        erase.hits.clear();
+        state.eraserView = null;
+    }
 
     function render() {
         Renderer.render(state);
@@ -43,6 +198,7 @@
     }
 
     function updateStatusForTool() {
+        if (state.currentTool === 'eraser') { updateStatus(Config.TEXT.statusEraser); return; }
         updateStatus(state.currentTool === 'compass' ? Config.TEXT.statusCompass : Config.TEXT.statusRuler);
     }
 
@@ -64,8 +220,7 @@
     function cancelDrawing() {
         state.phase = 'idle';
         state.startPoint = null;
-        state.previewCircle = null;
-        state.previewLine = null;
+        state.previewCurve = null;
     }
 
     // 应用吸附结果
@@ -100,21 +255,31 @@
 
     function setTool(tool) {
         if (state.phase === 'started') cancelDrawing();
+        resetErase();
         state.currentTool = tool;
         toolCompass.classList.toggle('active', tool === 'compass');
         toolRuler.classList.toggle('active', tool === 'ruler');
+        toolEraser.classList.toggle('active', tool === 'eraser');
+        rulerKindGroup.style.display = tool === 'ruler' ? 'flex' : 'none';
         updateStatusForTool();
         render();
     }
 
+    // 切换直尺模式 (线段/射线/直线)
+    function setRulerKind(kind) {
+        state.rulerKind = kind;
+        kindBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.kind === kind));
+        if (state.phase === 'started') updatePreview();
+        render();
+    }
+
     // ---------- 坐标换算 ----------
+    // 屏幕坐标 = 画布内 CSS 像素坐标 (backing store 已按 dpr 放大，逻辑坐标不变)
     function getMouseScreenCoords(e) {
         const rect = canvas.getBoundingClientRect();
-        const scaleX = canvas.width / rect.width;
-        const scaleY = canvas.height / rect.height;
         return {
-            x: (e.clientX - rect.left) * scaleX,
-            y: (e.clientY - rect.top) * scaleY
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top
         };
     }
 
@@ -130,8 +295,7 @@
     // ---------- 预览更新 ----------
     function updatePreview() {
         if (state.phase !== 'started' || !state.startPoint) {
-            state.previewCircle = null;
-            state.previewLine = null;
+            state.previewCurve = null;
             return;
         }
 
@@ -140,12 +304,10 @@
 
         if (state.currentTool === 'compass') {
             const r = Math.hypot(target.x - sx, target.y - sy);
-            state.previewCircle = r < 1 ? null : { x: sx, y: sy, r: r };
-            state.previewLine = null;
+            state.previewCurve = r < 1 ? null : { type: 'circle', cx: sx, cy: sy, r: r, a0: 0, a1: Math.PI * 2 };
         } else {
             const dist = Math.hypot(target.x - sx, target.y - sy);
-            state.previewLine = dist < 1 ? null : { x1: sx, y1: sy, x2: target.x, y2: target.y };
-            state.previewCircle = null;
+            state.previewCurve = dist < 1 ? null : Geometry.makeLineCurveData(state.startPoint, target, state.rulerKind);
         }
     }
 
@@ -178,6 +340,25 @@
         if (e.button !== 0) return;
         e.preventDefault();
 
+        // 橡皮擦: 开始笔画
+        if (state.currentTool === 'eraser') {
+            const pick = pickCurve(state.mouseWorld, Config.ERASER_RADIUS_SCREEN);
+            if (pick) {
+                erase.active = true;
+                erase.lastWorld = { x: state.mouseWorld.x, y: state.mouseWorld.y };
+                addEraseSample(state.mouseWorld);
+                state.eraserView = eraserView({ x: state.mouseScreen.x, y: state.mouseScreen.y });
+            }
+            render();
+            return;
+        }
+
+        // 在当前位置重新检测吸附 (不依赖上次 mousemove 的旧值)
+        const snap = Snap.find(state.mouseWorld.x, state.mouseWorld.y, drawCtx());
+        applySnap(snap);
+        if (snap) showSnapIndicator(snap.type, snap.label);
+        else hideSnapIndicator();
+
         // 使用吸附点 (若有) 作为操作坐标
         const useX = state.snappedPoint ? state.snappedPoint.x : state.mouseWorld.x;
         const useY = state.snappedPoint ? state.snappedPoint.y : state.mouseWorld.y;
@@ -197,12 +378,10 @@
             finishDrawing(useX, useY);
         }
 
-        // 重新检测吸附
-        applySnap(Snap.find(state.mouseWorld.x, state.mouseWorld.y));
         render();
     }
 
-    // 第二次点击：确定半径 / 终点，生成图形
+    // 第二次点击：确定半径 / 终点，生成曲线
     function finishDrawing(useX, useY) {
         const scale = View.getState().scale;
         const sx = state.startPoint.x, sy = state.startPoint.y;
@@ -212,13 +391,13 @@
             // 最小半径 (屏幕像素，避免过小)
             if (r * scale >= Config.MIN_SHAPE_SCREEN) {
                 Store.saveHistory();
-                Store.addCircle(sx, sy, r);
+                Store.makeCircleCurve(sx, sy, r);
             }
         } else {
             const dist = Math.hypot(useX - sx, useY - sy);
             if (dist * scale >= Config.MIN_SHAPE_SCREEN) {
                 Store.saveHistory();
-                Store.addLine(sx, sy, useX, useY);
+                Store.makeLineCurve(state.startPoint, { x: useX, y: useY }, state.rulerKind);
             }
         }
         cancelDrawing();
@@ -236,7 +415,29 @@
         // 普通移动
         updateMouseWorld(e);
 
-        const snap = Snap.find(state.mouseWorld.x, state.mouseWorld.y);
+        // 橡皮擦移动: 笔画采样 / 悬浮预览
+        if (state.currentTool === 'eraser') {
+            if (erase.active) {
+                const dxw = state.mouseWorld.x - erase.lastWorld.x;
+                const dyw = state.mouseWorld.y - erase.lastWorld.y;
+                const stepScreen = Math.hypot(dxw, dyw) * View.getState().scale;
+                const n = Math.max(1, Math.min(60, Math.ceil(stepScreen / 4)));
+                for (let i = 1; i <= n; i++) {
+                    addEraseSample({ x: erase.lastWorld.x + dxw * i / n, y: erase.lastWorld.y + dyw * i / n });
+                }
+                // 对本段笔画碰到的曲线做参数补采 (预算 = 2 倍鼠标位移 + 余量)
+                const budget = stepScreen * 2 / View.getState().scale + 30;
+                erase.hits.forEach(entry => fillParamGaps(entry, budget));
+                erase.lastWorld = { x: state.mouseWorld.x, y: state.mouseWorld.y };
+                state.eraserView = eraserView({ x: state.mouseScreen.x, y: state.mouseScreen.y });
+            } else {
+                state.eraserView = hoverEraseView();
+            }
+            render();
+            return;
+        }
+
+        const snap = Snap.find(state.mouseWorld.x, state.mouseWorld.y, drawCtx());
         applySnap(snap);
         if (snap) {
             showSnapIndicator(snap.type, snap.label);
@@ -255,6 +456,24 @@
             isPanning = false;
             panStart = null;
             canvas.classList.remove('grabbing');
+            return;
+        }
+
+        // 橡皮擦结束 → 整段移除所有被涂抹的节点区间 (单击与拖动同规则)
+        if (erase.active && e.button === 0) {
+            const plan = [];
+            erase.hits.forEach((v, curveId) => {
+                const ranges = nodeIntervals(v.curve, v.params);
+                if (ranges.length) plan.push({ curveId: curveId, ranges: ranges });
+            });
+            if (plan.length) {
+                Store.saveHistory();
+                const scale = View.getState().scale;
+                plan.forEach(p => Store.splitCurve(p.curveId, p.ranges, Config.MIN_SHAPE_SCREEN / scale));
+            }
+            resetErase();
+            updateStatusForTool();
+            render();
         }
     }
 
@@ -274,16 +493,49 @@
 
     toolCompass.addEventListener('click', () => setTool('compass'));
     toolRuler.addEventListener('click', () => setTool('ruler'));
+    toolEraser.addEventListener('click', () => setTool('eraser'));
+    kindBtns.forEach(btn => btn.addEventListener('click', () => setRulerKind(btn.dataset.kind)));
     clearBtn.addEventListener('click', clearAll);
     undoBtn.addEventListener('click', undo);
     resetViewBtn.addEventListener('click', () => View.reset());
     circleSnapToggle.addEventListener('change', (e) => Snap.setCircleSnapEnabled(e.target.checked));
+    axisSnapToggle.addEventListener('change', (e) => Snap.setAxisSnapEnabled(e.target.checked));
+
+    // 绘制中启用水平/垂直吸附的上下文
+    function drawCtx() {
+        return state.phase === 'started' && state.startPoint ? { startPoint: state.startPoint } : null;
+    }
+
+    // 原生全屏切换
+    fullBtn.addEventListener('click', () => {
+        if (document.fullscreenElement) {
+            document.exitFullscreen();
+        } else {
+            document.documentElement.requestFullscreen().catch(() => {});
+        }
+    });
+
+    // 窗口尺寸变化 → 画布自适应 (铺满视口 + HiDPI)
+    const resizeObserver = new ResizeObserver(() => {
+        const dpr = Math.min(window.devicePixelRatio || 1, Config.MAX_DPR);
+        Renderer.setSize(canvas.clientWidth, canvas.clientHeight, dpr);
+        render();
+    });
+    resizeObserver.observe(canvas);
 
     window.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && state.phase === 'started') {
-            cancelDrawing();
-            updateStatusForTool();
-            render();
+        if (e.key === 'Escape') {
+            if (erase.active) {
+                resetErase();
+                updateStatusForTool();
+                render();
+                return;
+            }
+            if (state.phase === 'started') {
+                cancelDrawing();
+                updateStatusForTool();
+                render();
+            }
         }
         if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
             e.preventDefault();
@@ -304,12 +556,7 @@
         render();
     });
 
-    // 演示图形
-    Store.addCircle(320, 320, 150);
-    Store.addCircle(520, 350, 130);
-    Store.addLine(180, 200, 780, 520);
-    Store.addLine(220, 540, 720, 180);
-
+    // 画布初始为空 (todo: 初始不要有任何东西)
     updateZoomIndicator();
     render();
     updateStatusForTool();

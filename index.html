@@ -9,7 +9,7 @@
 <body>
     <div class="app">
         <div class="canvas-wrapper">
-            <canvas id="board" width="900" height="650"></canvas>
+            <canvas id="board"></canvas>
             <div class="snap-indicator" id="snapIndicator">吸附</div>
             <div class="zoom-indicator" id="zoomIndicator">100%</div>
         </div>
@@ -21,15 +21,28 @@
                 <button id="toolRuler" class="tool-btn" data-tool="ruler">
                     📏 直尺
                 </button>
+                <button id="toolEraser" class="tool-btn" data-tool="eraser">
+                    🧹 橡皮
+                </button>
+            </div>
+            <div class="tool-group sub" id="rulerKindGroup" style="display:none;" title="直尺绘制模式">
+                <button class="kind-btn active" data-kind="segment">线段</button>
+                <button class="kind-btn" data-kind="ray">射线</button>
+                <button class="kind-btn" data-kind="line">直线</button>
             </div>
             <div class="status" id="statusMsg">
                 圆规: 点击圆心 → 拖动定半径
             </div>
+            <label class="toggle-wrap" title="绘制时方向接近水平/垂直 (0.5°内) 自动吸附到轴线">
+                <input type="checkbox" id="axisSnapToggle" checked>
+                横平竖直
+            </label>
             <label class="toggle-wrap" title="圆周上任意点也可吸附">
                 <input type="checkbox" id="circleSnapToggle" checked>
                 圆周吸附
             </label>
             <button class="action-btn small" id="resetViewBtn">重置视野</button>
+            <button class="action-btn small" id="fullBtn" title="切换全屏">⛶ 全屏</button>
             <div style="display:flex;gap:8px;">
                 <button id="undoBtn" class="action-btn undo">撤销</button>
                 <button id="clearBtn" class="action-btn">清空</button>

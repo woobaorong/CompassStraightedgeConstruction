@@ -1,36 +1,59 @@
 /**
- * 渲染模块 — 负责把图形数据与交互状态绘制到画布
+ * 渲染模块 — 负责把曲线数据与交互状态绘制到画布
  *
  * 坐标约定：所有几何数据使用世界坐标，绘制前经 View 转为屏幕坐标
+ * 绘制层次：网格 → 填充 → 曲线 → 交点标记 → 预览 → 吸附高亮 → 起点标记
  */
 const Renderer = (() => {
 
-    let ctx = null;   // 2D 绘图上下文
-    let W = 0;        // 画布宽 (px)
-    let H = 0;        // 画布高 (px)
+    let ctx = null;       // 2D 绘图上下文
+    let canvasEl = null;  // 画布元素引用
+    let W = 0;            // 画布宽 (CSS 像素，坐标计算均基于此)
+    let H = 0;            // 画布高 (CSS 像素)
 
     function init(canvas) {
+        canvasEl = canvas;
         ctx = canvas.getContext('2d');
-        W = canvas.width;
-        H = canvas.height;
+    }
+
+    // 设置画布尺寸 (CSS 像素)，backing store 按 dpr 放大保证 HiDPI 清晰
+    function setSize(cssW, cssH, dpr) {
+        W = Math.max(1, Math.round(cssW));
+        H = Math.max(1, Math.round(cssH));
+        if (!canvasEl || !ctx) return;
+        canvasEl.width = Math.round(W * dpr);
+        canvasEl.height = Math.round(H * dpr);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
 
     /**
      * 主渲染入口
      * @param {Object} state 应用状态
-     *   { phase, startPoint, previewCircle, previewLine,
-     *     snappedPoint, snappedType, mouseWorld, currentTool }
+     *   { phase, startPoint, previewCurve, snappedPoint, snappedType,
+     *     mouseWorld, currentTool, ... } (后续阶段扩展选中/橡皮等字段)
      */
     function render(state) {
         ctx.clearRect(0, 0, W, H);
 
         drawGrid();
-        drawLines(Store.getLines());
-        drawCircles(Store.getCircles());
+        drawFills();
+        drawCurves();
+        drawErase(state);
         drawIntersectionMarkers();
         drawPreview(state);
         drawSnapHighlight(state);
         drawStartMarker(state);
+    }
+
+    // 世界坐标下的当前视口矩形
+    function worldViewport() {
+        const v = View.getState();
+        return {
+            x0: v.offsetX,
+            y0: v.offsetY,
+            x1: v.offsetX + W / v.scale,
+            y1: v.offsetY + H / v.scale
+        };
     }
 
     // ---------- 动态网格 ----------
@@ -91,46 +114,43 @@ const Renderer = (() => {
         ctx.restore();
     }
 
-    // ---------- 线段与端点 ----------
-    function drawLines(lines) {
-        ctx.save();
-        ctx.lineCap = 'round';
-        lines.forEach(line => {
-            const p1 = View.worldToScreen(line.x1, line.y1);
-            const p2 = View.worldToScreen(line.x2, line.y2);
-            ctx.beginPath();
-            ctx.moveTo(p1.x, p1.y);
-            ctx.lineTo(p2.x, p2.y);
-            ctx.strokeStyle = Config.COLORS.line;
-            ctx.lineWidth = 2;
-            ctx.stroke();
-
-            // 端点 (屏幕尺寸固定)
-            ctx.fillStyle = Config.COLORS.lineEndpoint;
-            ctx.beginPath();
-            ctx.arc(p1.x, p1.y, 3.5, 0, 2 * Math.PI);
-            ctx.fill();
-            ctx.beginPath();
-            ctx.arc(p2.x, p2.y, 3.5, 0, 2 * Math.PI);
-            ctx.fill();
-        });
-        ctx.restore();
-    }
-
-    // ---------- 圆 / 圆心 / 半径线 ----------
-    function drawCircles(circles) {
+    // ---------- 单条曲线绘制核心 ----------
+    function drawCurve(c, strokeStyle, lineWidth) {
         const view = View.getState();
         ctx.save();
-        circles.forEach(circle => {
-            const cScreen = View.worldToScreen(circle.x, circle.y);
-            const rScreen = circle.r * view.scale;
-            if (rScreen < 0.5) return; // 太小不画
+        ctx.strokeStyle = strokeStyle;
+        ctx.lineWidth = lineWidth;
+        ctx.lineCap = 'round';
 
+        if (c.type === 'line') {
+            // 裁剪到视口 (对线段也无害，可裁掉屏外部分)
+            const clip = Geometry.clipLineToView(c, worldViewport());
+            if (!clip) { ctx.restore(); return; }
+            const a = Geometry.curvePointAt(c, clip.tA);
+            const b = Geometry.curvePointAt(c, clip.tB);
+            const sa = View.worldToScreen(a.x, a.y);
+            const sb = View.worldToScreen(b.x, b.y);
             ctx.beginPath();
-            ctx.arc(cScreen.x, cScreen.y, rScreen, 0, 2 * Math.PI);
-            ctx.strokeStyle = Config.COLORS.circle;
-            ctx.lineWidth = 2;
+            ctx.moveTo(sa.x, sa.y);
+            ctx.lineTo(sb.x, sb.y);
             ctx.stroke();
+
+            // 真实端点圆点 (屏幕尺寸固定)
+            ctx.fillStyle = Config.COLORS.lineEndpoint;
+            Geometry.curveEndpoints(c).forEach(e => {
+                const sp = View.worldToScreen(e.x, e.y);
+                ctx.beginPath();
+                ctx.arc(sp.x, sp.y, 3.5, 0, 2 * Math.PI);
+                ctx.fill();
+            });
+        } else {
+            const cScreen = View.worldToScreen(c.cx, c.cy);
+            const rScreen = c.r * view.scale;
+            if (rScreen >= 0.5) {
+                ctx.beginPath();
+                ctx.arc(cScreen.x, cScreen.y, rScreen, c.a0, c.a1);
+                ctx.stroke();
+            }
 
             // 圆心
             ctx.fillStyle = Config.COLORS.circle;
@@ -138,70 +158,149 @@ const Renderer = (() => {
             ctx.arc(cScreen.x, cScreen.y, 4, 0, 2 * Math.PI);
             ctx.fill();
 
-            // 半径线
-            ctx.beginPath();
-            ctx.moveTo(cScreen.x, cScreen.y);
-            ctx.lineTo(cScreen.x + rScreen, cScreen.y);
-            ctx.strokeStyle = Config.COLORS.circleRadiusLine;
-            ctx.lineWidth = 1;
-            ctx.setLineDash([4, 4]);
-            ctx.stroke();
-            ctx.setLineDash([]);
-        });
+            // 半径虚线 (仅完整圆)
+            if (Geometry.isFullCircle(c)) {
+                ctx.beginPath();
+                ctx.moveTo(cScreen.x, cScreen.y);
+                ctx.lineTo(cScreen.x + rScreen, cScreen.y);
+                ctx.strokeStyle = Config.COLORS.circleRadiusLine;
+                ctx.lineWidth = 1;
+                ctx.setLineDash([4, 4]);
+                ctx.stroke();
+            }
+        }
         ctx.restore();
     }
 
-    // ---------- 交点标记 (线-线 / 线-圆 / 圆-圆) ----------
-    function drawIntersectionMarkers() {
-        const lines = Store.getLines();
-        const circles = Store.getCircles();
-
-        const interPts = [];
-        for (let i = 0; i < lines.length; i++) {
-            for (let j = i + 1; j < lines.length; j++) {
-                const p = Geometry.segSegIntersection(lines[i].x1, lines[i].y1, lines[i].x2, lines[i].y2,
-                                                      lines[j].x1, lines[j].y1, lines[j].x2, lines[j].y2);
-                if (p) interPts.push(p);
-            }
-        }
-        lines.forEach(line => {
-            circles.forEach(circle => {
-                Geometry.segCircleIntersection(line.x1, line.y1, line.x2, line.y2, circle.x, circle.y, circle.r)
-                    .forEach(p => interPts.push(p));
-            });
+    // ---------- 所有曲线 ----------
+    function drawCurves() {
+        Store.getCurves().forEach(c => {
+            const color = c.type === 'line' ? Config.COLORS.line : Config.COLORS.circle;
+            drawCurve(c, color, 2);
         });
-        for (let i = 0; i < circles.length; i++) {
-            for (let j = i + 1; j < circles.length; j++) {
-                Geometry.circleCircleIntersection(circles[i].x, circles[i].y, circles[i].r,
-                                                  circles[j].x, circles[j].y, circles[j].r)
-                    .forEach(p => interPts.push(p));
-            }
-        }
+    }
 
+    // ---------- 填充层 (网格之上、曲线之下) ----------
+    function drawFills() {
+        const fills = Store.getFills();
+        if (!fills.length) return;
+        const view = View.getState();
         ctx.save();
-        ctx.fillStyle = Config.COLORS.intersection;
-        interPts.forEach(p => {
-            const sp = View.worldToScreen(p.x, p.y);
+        fills.forEach(f => {
+            const poly = [];
+            f.boundary.forEach(b => {
+                const c = Store.curveById(b.curveId);
+                if (!c) return;
+                const span = b.tTo - b.tFrom;
+                const steps = Math.max(2, Math.ceil(span * (c.r || 0) * view.scale / Config.ARC_SAMPLE_PX));
+                const n = c.type === 'circle' ? Math.max(2, Math.min(360, steps)) : 1;
+                for (let i = 0; i <= n; i++) {
+                    const t = b.tFrom + span * i / n;
+                    const p = Geometry.curvePointAt(c, t);
+                    if (b.reverse) poly.unshift({ x: p.x, y: p.y });
+                    else poly.push({ x: p.x, y: p.y });
+                }
+            });
+            if (poly.length < 3) return;
             ctx.beginPath();
-            ctx.arc(sp.x, sp.y, 3, 0, 2 * Math.PI);
+            poly.forEach((p, i) => {
+                const sp = View.worldToScreen(p.x, p.y);
+                if (i === 0) ctx.moveTo(sp.x, sp.y);
+                else ctx.lineTo(sp.x, sp.y);
+            });
+            ctx.closePath();
+            ctx.fillStyle = f.color;
             ctx.fill();
         });
         ctx.restore();
     }
 
+    // ---------- 橡皮擦: 区间高亮 + 光圈 ----------
+    // 画出曲线参数子区间的加粗高亮折线
+    function drawCurveRange(c, from, to, style, width) {
+        const view = View.getState();
+        const span = to - from;
+        if (span <= 0) return;
+        const screenLen = c.type === 'line'
+            ? span * view.scale
+            : span * c.r * view.scale;
+        const n = Math.max(2, Math.min(200, Math.ceil(screenLen / 6)));
+        ctx.save();
+        ctx.strokeStyle = style;
+        ctx.lineWidth = width;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        for (let i = 0; i <= n; i++) {
+            const p = Geometry.curvePointAt(c, from + span * i / n);
+            const sp = View.worldToScreen(p.x, p.y);
+            if (i === 0) ctx.moveTo(sp.x, sp.y);
+            else ctx.lineTo(sp.x, sp.y);
+        }
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    // state.eraserView = { hits: [{ curveId, ranges }], hover: { curveId, ranges }, cursor: {x,y}|null }
+    function drawErase(state) {
+        const ev = state.eraserView;
+        if (!ev) return;
+
+        (ev.hits || []).forEach(h => {
+            const c = Store.curveById(h.curveId);
+            if (!c) return;
+            h.ranges.forEach(r => drawCurveRange(c, r.from, r.to, Config.COLORS.eraserHighlight, 8));
+        });
+        if (ev.hover) {
+            const c = Store.curveById(ev.hover.curveId);
+            if (c) ev.hover.ranges.forEach(r => drawCurveRange(c, r.from, r.to, Config.COLORS.eraserHighlight, 6));
+        }
+        if (ev.cursor) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(ev.cursor.x, ev.cursor.y, Config.ERASER_RADIUS_SCREEN, 0, 2 * Math.PI);
+            ctx.strokeStyle = Config.COLORS.eraserRing;
+            ctx.lineWidth = 1.5;
+            ctx.setLineDash([4, 3]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.restore();
+        }
+    }
+
+    // ---------- 交点标记 (任意两类曲线之间) ----------
+    function drawIntersectionMarkers() {
+        const curves = Store.getCurves();
+        ctx.save();
+        ctx.fillStyle = Config.COLORS.intersection;
+        for (let i = 0; i < curves.length; i++) {
+            for (let j = i + 1; j < curves.length; j++) {
+                Geometry.curveIntersection(curves[i], curves[j]).forEach(p => {
+                    const sp = View.worldToScreen(p.x, p.y);
+                    ctx.beginPath();
+                    ctx.arc(sp.x, sp.y, 3, 0, 2 * Math.PI);
+                    ctx.fill();
+                });
+            }
+        }
+        ctx.restore();
+    }
+
     // ---------- 进行中的预览图形 ----------
     function drawPreview(state) {
-        if (state.phase !== 'started' || !state.startPoint) return;
+        if (state.phase !== 'started' || !state.startPoint || !state.previewCurve) return;
 
-        const view = View.getState();
-        const startScreen = View.worldToScreen(state.startPoint.x, state.startPoint.y);
-        const targetWorld = state.snappedPoint ? state.snappedPoint : state.mouseWorld;
-        const targetScreen = View.worldToScreen(targetWorld.x, targetWorld.y);
+        ctx.save();
+        const pc = state.previewCurve;
 
-        if (state.currentTool === 'compass' && state.previewCircle) {
-            ctx.save();
-            const pcScreen = View.worldToScreen(state.previewCircle.x, state.previewCircle.y);
-            const prScreen = state.previewCircle.r * view.scale;
+        if (pc.type === 'circle') {
+            const startScreen = View.worldToScreen(state.startPoint.x, state.startPoint.y);
+            const targetWorld = state.snappedPoint ? state.snappedPoint : state.mouseWorld;
+            const targetScreen = View.worldToScreen(targetWorld.x, targetWorld.y);
+            const view = View.getState();
+            const pcScreen = View.worldToScreen(pc.cx, pc.cy);
+            const prScreen = pc.r * view.scale;
+
             ctx.strokeStyle = Config.COLORS.preview;
             ctx.lineWidth = 2;
             ctx.setLineDash([8, 6]);
@@ -209,6 +308,7 @@ const Renderer = (() => {
             ctx.arc(pcScreen.x, pcScreen.y, prScreen, 0, 2 * Math.PI);
             ctx.stroke();
 
+            // 圆心到鼠标的辅助线
             ctx.setLineDash([4, 4]);
             ctx.strokeStyle = Config.COLORS.previewLine;
             ctx.lineWidth = 1.5;
@@ -225,28 +325,33 @@ const Renderer = (() => {
             ctx.beginPath();
             ctx.arc(targetScreen.x, targetScreen.y, 3, 0, 2 * Math.PI);
             ctx.fill();
-            ctx.restore();
-        } else if (state.currentTool === 'ruler' && state.previewLine) {
-            ctx.save();
-            const p1 = View.worldToScreen(state.previewLine.x1, state.previewLine.y1);
-            const p2 = View.worldToScreen(state.previewLine.x2, state.previewLine.y2);
-            ctx.strokeStyle = Config.COLORS.preview;
-            ctx.lineWidth = 2;
-            ctx.setLineDash([8, 6]);
-            ctx.beginPath();
-            ctx.moveTo(p1.x, p1.y);
-            ctx.lineTo(p2.x, p2.y);
-            ctx.stroke();
-            ctx.setLineDash([]);
+        } else {
+            // 线型预览: 复用曲线绘制 (含视口裁剪)，虚线样式
+            const clip = Geometry.clipLineToView(pc, worldViewport());
+            if (clip) {
+                const a = Geometry.curvePointAt(pc, clip.tA);
+                const b = Geometry.curvePointAt(pc, clip.tB);
+                const sa = View.worldToScreen(a.x, a.y);
+                const sb = View.worldToScreen(b.x, b.y);
+                ctx.strokeStyle = Config.COLORS.preview;
+                ctx.lineWidth = 2;
+                ctx.setLineDash([8, 6]);
+                ctx.beginPath();
+                ctx.moveTo(sa.x, sa.y);
+                ctx.lineTo(sb.x, sb.y);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+            // 预览端点 (仅真实端点)
             ctx.fillStyle = Config.COLORS.preview;
-            ctx.beginPath();
-            ctx.arc(p1.x, p1.y, 4, 0, 2 * Math.PI);
-            ctx.fill();
-            ctx.beginPath();
-            ctx.arc(p2.x, p2.y, 4, 0, 2 * Math.PI);
-            ctx.fill();
-            ctx.restore();
+            Geometry.curveEndpoints(pc).forEach(e => {
+                const sp = View.worldToScreen(e.x, e.y);
+                ctx.beginPath();
+                ctx.arc(sp.x, sp.y, 4, 0, 2 * Math.PI);
+                ctx.fill();
+            });
         }
+        ctx.restore();
     }
 
     // ---------- 吸附点高亮 ----------
@@ -288,5 +393,5 @@ const Renderer = (() => {
         ctx.restore();
     }
 
-    return Object.freeze({ init, render });
+    return Object.freeze({ init, setSize, render });
 })();

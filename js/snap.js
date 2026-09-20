@@ -4,71 +4,96 @@
 const Snap = (() => {
 
     let circleSnapEnabled = true;   // 圆周吸附开关 (由 UI 控制)
+    let axisSnapEnabled = true;     // 横平竖直吸附开关 (由 UI 控制)
 
     function setCircleSnapEnabled(enabled) { circleSnapEnabled = enabled; }
+    function setAxisSnapEnabled(enabled) { axisSnapEnabled = enabled; }
 
     // 收集所有吸附候选点 (世界坐标)
     function collectAllCandidates(wx, wy) {
         const candidates = [];
-        const circles = Store.getCircles();
-        const lines = Store.getLines();
+        const curves = Store.getCurves();
 
-        // 交点 — 最高优先级
-        for (let i = 0; i < lines.length; i++) {
-            for (let j = i + 1; j < lines.length; j++) {
-                const l1 = lines[i], l2 = lines[j];
-                const p = Geometry.segSegIntersection(l1.x1, l1.y1, l1.x2, l1.y2, l2.x1, l2.y1, l2.x2, l2.y2);
-                if (p) candidates.push({ x: p.x, y: p.y, type: 'intersection', label: '线线交点', priority: Config.PRIORITY.intersection });
-            }
-        }
-        lines.forEach(line => {
-            circles.forEach(circle => {
-                Geometry.segCircleIntersection(line.x1, line.y1, line.x2, line.y2, circle.x, circle.y, circle.r)
-                    .forEach(p => candidates.push({ x: p.x, y: p.y, type: 'intersection', label: '线圆交点', priority: Config.PRIORITY.intersection }));
-            });
-        });
-        for (let i = 0; i < circles.length; i++) {
-            for (let j = i + 1; j < circles.length; j++) {
-                const c1 = circles[i], c2 = circles[j];
-                Geometry.circleCircleIntersection(c1.x, c1.y, c1.r, c2.x, c2.y, c2.r)
-                    .forEach(p => candidates.push({ x: p.x, y: p.y, type: 'intersection', label: '圆圆交点', priority: Config.PRIORITY.intersection }));
+        // 交点 — 最高优先级 (任意两类曲线之间)
+        for (let i = 0; i < curves.length; i++) {
+            for (let j = i + 1; j < curves.length; j++) {
+                const c1 = curves[i], c2 = curves[j];
+                Geometry.curveIntersection(c1, c2).forEach(p => {
+                    let label;
+                    if (c1.type === 'line' && c2.type === 'line') label = '线线交点';
+                    else if (c1.type === 'circle' && c2.type === 'circle') label = '圆圆交点';
+                    else label = '线圆交点';
+                    candidates.push({ x: p.x, y: p.y, type: 'intersection', label: label, priority: Config.PRIORITY.intersection });
+                });
             }
         }
 
-        // 端点
-        lines.forEach(line => {
-            candidates.push({ x: line.x1, y: line.y1, type: 'endpoint', label: '端点', priority: Config.PRIORITY.endpoint });
-            candidates.push({ x: line.x2, y: line.y2, type: 'endpoint', label: '端点', priority: Config.PRIORITY.endpoint });
+        // 端点 / 圆心
+        curves.forEach(c => {
+            if (c.type === 'line') {
+                Geometry.curveEndpoints(c).forEach(e => {
+                    candidates.push({ x: e.x, y: e.y, type: 'endpoint', label: '端点', priority: Config.PRIORITY.endpoint });
+                });
+            } else {
+                candidates.push({ x: c.cx, y: c.cy, type: 'center', label: '圆心', priority: Config.PRIORITY.center });
+            }
         });
 
-        // 圆心
-        circles.forEach(circle => {
-            candidates.push({ x: circle.x, y: circle.y, type: 'center', label: '圆心', priority: Config.PRIORITY.center });
-        });
-
-        // 动态: 圆周
+        // 动态: 圆周 (弧域内截断)
         if (circleSnapEnabled) {
-            circles.forEach(circle => {
-                const cp = Geometry.closestPointOnCircle(wx, wy, circle.x, circle.y, circle.r);
-                candidates.push({ x: cp.x, y: cp.y, type: 'circle', label: '圆周', priority: Config.PRIORITY.circle });
+            curves.forEach(c => {
+                if (c.type !== 'circle') return;
+                const cp = Geometry.closestPointOnCurve(c, wx, wy);
+                candidates.push({ x: cp.x, y: cp.y, type: 'circle', label: Geometry.isFullCircle(c) ? '圆周' : '弧上', priority: Config.PRIORITY.circle });
             });
         }
 
-        // 动态: 线段
-        lines.forEach(line => {
-            const cp = Geometry.closestPointOnSegment(wx, wy, line.x1, line.y1, line.x2, line.y2);
-            if (cp.onSegment) {
-                candidates.push({ x: cp.x, y: cp.y, type: 'line', label: '线上', priority: Config.PRIORITY.line });
-            }
+        // 动态: 线上
+        curves.forEach(c => {
+            if (c.type !== 'line') return;
+            const cp = Geometry.closestPointOnCurve(c, wx, wy);
+            candidates.push({ x: cp.x, y: cp.y, type: 'line', label: '线上', priority: Config.PRIORITY.line });
         });
 
         return candidates;
     }
 
+    // 绘制中的水平/垂直轴候选: start→mouse 方向与坐标轴夹角 ≤ 0.5° 时投影到轴线
+    // 返回 null 或 { x, y, type:'axis', label, priority }
+    function axisCandidate(startPoint, wx, wy) {
+        if (!axisSnapEnabled || !startPoint) return null;
+        const dx = wx - startPoint.x, dy = wy - startPoint.y;
+        if (Math.hypot(dx, dy) < 1e-9) return null;
+
+        const a = Math.atan2(dy, dx);
+        const k = Math.round(a / (Math.PI / 2));
+        const diff = Math.abs(a - k * Math.PI / 2);
+        if (diff > Config.AXIS_SNAP_TOLERANCE && diff < Math.PI / 2 - Config.AXIS_SNAP_TOLERANCE) return null;
+
+        // 投影到过起点的水平/垂直轴线 (屏幕距离足够近才触发)
+        const horizontal = (k % 2 === 0);
+        const px = horizontal ? wx : startPoint.x;
+        const py = horizontal ? startPoint.y : wy;
+
+        const pScreen = View.worldToScreen(px, py);
+        const mScreen = View.worldToScreen(wx, wy);
+        if (Math.hypot(pScreen.x - mScreen.x, pScreen.y - mScreen.y) > Config.SNAP_DIST_SCREEN * 40) return null;
+
+        return {
+            x: px, y: py, type: 'axis',
+            label: horizontal ? '水平' : '垂直',
+            priority: Config.PRIORITY.axis
+        };
+    }
+
     // 找出最佳吸附点：屏幕距离阈值内，按「距离 - 优先级加分」评分
-    function find(wx, wy) {
+    // drawCtx: { startPoint } 绘制中传入起点以启用水平/垂直吸附
+    function find(wx, wy, drawCtx) {
         const mScreen = View.worldToScreen(wx, wy);
         const candidates = collectAllCandidates(wx, wy);
+
+        const axis = axisCandidate(drawCtx && drawCtx.startPoint, wx, wy);
+        if (axis) candidates.push(axis);
 
         let best = null;
         let bestScore = Infinity;
@@ -76,7 +101,7 @@ const Snap = (() => {
         candidates.forEach(p => {
             const pScreen = View.worldToScreen(p.x, p.y);
             const dScreen = Math.hypot(pScreen.x - mScreen.x, pScreen.y - mScreen.y);
-            if (dScreen > Config.SNAP_DIST_SCREEN) return;
+            if (dScreen > Config.SNAP_DIST_SCREEN && p.type !== 'axis') return;
 
             const priorityBonus = p.priority * 0.15;
             const score = dScreen - priorityBonus;
@@ -90,5 +115,5 @@ const Snap = (() => {
         return best;
     }
 
-    return Object.freeze({ setCircleSnapEnabled, find, collectAllCandidates });
+    return Object.freeze({ setCircleSnapEnabled, setAxisSnapEnabled, find, collectAllCandidates });
 })();
