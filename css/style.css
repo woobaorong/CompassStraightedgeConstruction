@@ -134,6 +134,35 @@ canvas.grabbing {
     color: white;
 }
 
+/* ---------- 填充色板 ---------- */
+.swatch {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.25);
+    cursor: pointer;
+    padding: 0;
+    transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.swatch:hover {
+    transform: scale(1.15);
+}
+
+.swatch.active {
+    border-color: #ffffff;
+    box-shadow: 0 0 0 2px rgba(76, 122, 255, 0.9);
+}
+
+#customColor {
+    width: 22px;
+    height: 22px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    padding: 0;
+}
+
 .action-btn {
     background: #333;
     border: none;

@@ -32,8 +32,16 @@ const Config = Object.freeze({
         statusCompass: '圆规: 点击圆心 → 拖动定半径',
         statusRuler: '直尺: 点击起点 → 点击终点',
         statusEraser: '橡皮: 单击/拖动擦除交点或端点之间的整段',
+        statusFill: '填充: 点击封闭区域填色 · 色板可换颜色',
+        fillFail: '未找到封闭区域，无法填充',
         snapSuffix: '吸附'
     }),
+
+    // 油漆桶预设色板 (与 index.html 色板按钮一一对应)
+    FILL_COLORS: Object.freeze([
+        '#ef4444', '#f97316', '#eab308', '#22c55e',
+        '#06b6d4', '#3b82f6', '#a855f7', '#ec4899'
+    ]),
 
     // 橡皮擦光圈半径 (屏幕像素)
     ERASER_RADIUS_SCREEN: 12,

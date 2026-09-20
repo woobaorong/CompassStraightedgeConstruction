@@ -51,7 +51,7 @@ const Store = (() => {
         });
     }
 
-    // 删除曲线并级联清理：引用它的 attach 置空、相关 fill 丢弃
+    // 删除曲线并级联清理：引用它的 attach 置空 (填充由 refillFills 统一重提取)
     function removeCurve(id) {
         curves = curves.filter(c => c.id !== id);
         curves.forEach(c => {
@@ -62,7 +62,6 @@ const Store = (() => {
                 c.centerAttach = null;
             }
         });
-        fills = fills.filter(f => !f.boundary.some(b => b.curveId === id));
     }
 
     const EPS_T = 1e-7;
@@ -153,6 +152,96 @@ const Store = (() => {
         return curves.find(c => c.id === id) || null;
     }
 
+    // ---------- 填充区域 (P7 油漆桶) ----------
+    // fill = { id, color, seed:{x,y}, poly:[{x,y}...] }  poly 为最近一次提取的封闭面
+
+    function addFill(data) {
+        const f = Object.assign({ id: nextId++ }, data);
+        fills.push(f);
+        return f;
+    }
+
+    // 分裂见证点：新曲线把填充区域一分为二时，沿新曲线在「失去种子的那一部分」
+    // 里找候选种子点 —— 取落在旧区域内的相邻样本对，用中点 (必要时向两侧偏移)
+    function splitWitnesses(newCurves, oldPoly, seedPoly) {
+        const out = [];
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        oldPoly.forEach(p => {
+            x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y);
+            x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y);
+        });
+        const STEP = 4;   // 采样步长 (世界单位)
+        newCurves.forEach(c => {
+            const samples = [];
+            if (c.type === 'line') {
+                const clip = Geometry.clipLineToView(c, { x0: x0 - 1, y0: y0 - 1, x1: x1 + 1, y1: y1 + 1 });
+                if (!clip) return;
+                const len = clip.tB - clip.tA;
+                const n = Math.max(1, Math.min(2000, Math.ceil(len / STEP)));
+                for (let k = 0; k <= n; k++) {
+                    samples.push({
+                        p: Geometry.curvePointAt(c, clip.tA + len * k / n),
+                        d: c.dir
+                    });
+                }
+            } else {
+                const span = c.a1 - c.a0;
+                const n = Math.max(2, Math.min(2000, Math.ceil(span * c.r / STEP)));
+                for (let k = 0; k <= n; k++) {
+                    const a = c.a0 + span * k / n;
+                    samples.push({ p: Geometry.curvePointAt(c, a), d: { x: -Math.sin(a), y: Math.cos(a) } });
+                }
+            }
+            for (let k = 0; k + 1 < samples.length; k++) {
+                const s1 = samples[k].p, s2 = samples[k + 1].p;
+                if (!Geometry.pointInPoly(s1.x, s1.y, oldPoly)) continue;
+                if (!Geometry.pointInPoly(s2.x, s2.y, oldPoly)) continue;
+                const mx = (s1.x + s2.x) / 2, my = (s1.y + s2.y) / 2;
+                if (Geometry.pointInPoly(mx, my, oldPoly) && !Geometry.pointInPoly(mx, my, seedPoly)) {
+                    out.push({ x: mx, y: my });
+                    continue;
+                }
+                // 中点可能恰在分割线上 → 沿法线向两侧偏移再试
+                const dl = Math.hypot(s2.x - s1.x, s2.y - s1.y) || 1;
+                const nx = -(s2.y - s1.y) / dl, ny = (s2.x - s1.x) / dl;
+                [1.5, -1.5].forEach(off => {
+                    const q = { x: mx + nx * off, y: my + ny * off };
+                    if (Geometry.pointInPoly(q.x, q.y, oldPoly) && !Geometry.pointInPoly(q.x, q.y, seedPoly)) {
+                        out.push(q);
+                    }
+                });
+            }
+        });
+        return out;
+    }
+
+    // 几何变化后统一维护填充：
+    //  1) 每个填充按种子点重新提取封闭面 —— 提取失败 (包围线被擦开) → 删除该填充
+    //  2) 新增曲线使区域面积缩小 (被分割) → 为失去种子的部分补建同色填充
+    function refillFills(extractFn, newCurves) {
+        if (!fills.length) return;
+        const curves = getCurves();
+        const dead = [];
+        const born = [];
+        fills.forEach(f => {
+            const oldPoly = f.poly || null;
+            const face = extractFn(curves, f.seed.x, f.seed.y);
+            if (!face) { dead.push(f); return; }
+            if (oldPoly && newCurves && newCurves.length &&
+                Math.abs(Geometry.polyArea(oldPoly)) > Math.abs(face.area) + 1e-6) {
+                splitWitnesses(newCurves, oldPoly, face.poly).forEach(q => {
+                    if (Geometry.pointInPoly(q.x, q.y, face.poly)) return;      // 种子面已覆盖
+                    if (born.some(b => Geometry.pointInPoly(q.x, q.y, b.poly))) return;   // 已补建
+                    const f2 = extractFn(curves, q.x, q.y);
+                    if (f2) born.push({ color: f.color, seed: { x: q.x, y: q.y }, poly: f2.poly });
+                });
+            }
+            f.poly = face.poly;
+        });
+        fills = fills.filter(f => dead.indexOf(f) < 0);
+        born.forEach(b => addFill(b));
+    }
+
     function clear() {
         curves = [];
         fills = [];
@@ -169,6 +258,7 @@ const Store = (() => {
     return Object.freeze({
         saveHistory, undo,
         addCurve, makeLineCurve, makeCircleCurve, removeCurve, curveById, splitCurve,
+        addFill, refillFills,
         clear, isEmpty, getCurves, getFills
     });
 })();

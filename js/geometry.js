@@ -219,6 +219,179 @@ const Geometry = (() => {
         return out;
     }
 
+    // ---------- 多边形工具 ----------
+    // 鞋带公式有向面积 (世界坐标 y 向下：顺时针环为正)
+    function polyArea(poly) {
+        let a = 0;
+        for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+            a += poly[j].x * poly[i].y - poly[i].x * poly[j].y;
+        }
+        return a / 2;
+    }
+
+    // 偶奇规则射线法
+    function pointInPoly(x, y, poly) {
+        let inside = false;
+        for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+            const xi = poly[i].x, yi = poly[i].y, xj = poly[j].x, yj = poly[j].y;
+            if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+        }
+        return inside;
+    }
+
+    // ---------- 平面封闭面提取 (油漆桶填充核心) ----------
+    // 所有曲线按交点/共点切边 → 每边生成正反两个半边 → 在每个节点处把出边按方向角
+    // 排序，面绕行时取「来向角度序的前一条出边」(面在行进方向右侧，环绕兜底)。
+    // 世界坐标 y 向下：有界面绕行为顺时针 (屏幕) → 正鞋带面积，过滤后返回包含种子点的最小面。
+    // 返回 { poly: 采样多边形, area } 或 null (种子不在任何封闭面内)
+    function extractFace(curves, px, py) {
+        const N = curves.length;
+        if (!N) return null;
+        const EPS_NODE = 1e-6;   // 节点合并容差 (世界单位)
+        const EPS_T = 1e-7;      // 参数去重容差
+
+        // 1. 每条曲线的切割参数：两两求交 + 端点共点 (共线相接等求交漏掉的情形)
+        const cuts = [];
+        for (let i = 0; i < N; i++) cuts.push([]);
+        for (let i = 0; i < N; i++) {
+            for (let j = i + 1; j < N; j++) {
+                curveIntersection(curves[i], curves[j]).forEach(p => {
+                    cuts[i].push(p.t1);
+                    cuts[j].push(p.t2);
+                });
+            }
+        }
+        for (let i = 0; i < N; i++) {
+            const c = curves[i];
+            const ends = c.type === 'line'
+                ? (c.kind === 'segment' || c.kind === 'piece' ? [c.tMin, c.tMax]
+                   : c.kind === 'ray' ? [c.tMin] : [])
+                : (!isFullCircle(c) ? [c.a0, c.a1] : []);
+            ends.forEach(t => {
+                const p = curvePointAt(c, t);
+                for (let j = 0; j < N; j++) {
+                    if (j === i) continue;
+                    const cp = closestPointOnCurve(curves[j], p.x, p.y);
+                    if (Math.hypot(cp.x - p.x, cp.y - p.y) <= EPS_NODE) {
+                        cuts[i].push(t);
+                        cuts[j].push(cp.t);
+                    }
+                }
+            });
+        }
+
+        // 2. 切边：切割参数之间的每段是一条边 (全圆环绕成环，开曲线含端点边)
+        const segs = [];
+        for (let i = 0; i < N; i++) {
+            const c = curves[i];
+            const full = isFullCircle(c);
+            const dom = c.type === 'line' ? { from: c.tMin, to: c.tMax } : { from: c.a0, to: c.a1 };
+            const span = dom.to - dom.from;
+            const ts = cuts[i].slice().sort((a, b) => a - b)
+                .filter((t, k, arr) => k === 0 || t - arr[k - 1] > EPS_T);
+            if (!ts.length) {
+                segs.push({ c: c, tFrom: dom.from, tTo: dom.to });
+                continue;
+            }
+            if (full) {
+                for (let k = 0; k < ts.length; k++) {
+                    segs.push({ c: c, tFrom: ts[k], tTo: k + 1 < ts.length ? ts[k + 1] : ts[0] + span });
+                }
+            } else {
+                const all = [dom.from];
+                ts.forEach(t => { if (t > dom.from + EPS_T && t < dom.to - EPS_T) all.push(t); });
+                all.push(dom.to);
+                for (let k = 0; k + 1 < all.length; k++) {
+                    if (all[k + 1] - all[k] > EPS_T) segs.push({ c: c, tFrom: all[k], tTo: all[k + 1] });
+                }
+            }
+        }
+        if (!segs.length) return null;
+
+        // 3. 节点按位置容差合并 + 半边生成 (出边方向: 线型 ±dir，圆型 ±切向)
+        const nodes = [];
+        const nodeAt = (p) => {
+            for (let k = 0; k < nodes.length; k++) {
+                if (Math.hypot(nodes[k].x - p.x, nodes[k].y - p.y) <= EPS_NODE) return k;
+            }
+            nodes.push({ x: p.x, y: p.y });
+            return nodes.length - 1;
+        };
+        const travelDir = (c, t, sign) => {
+            if (c.type === 'line') return { x: c.dir.x * sign, y: c.dir.y * sign };
+            return { x: -Math.sin(t) * sign, y: Math.cos(t) * sign };
+        };
+        const halfEdges = [];
+        segs.forEach(s => {
+            const nF = nodeAt(curvePointAt(s.c, s.tFrom));
+            const nT = nodeAt(curvePointAt(s.c, s.tTo));
+            const hF = { seg: s, fwd: true, from: nF, to: nT, dir: travelDir(s.c, s.tFrom, 1), twin: null };
+            const hT = { seg: s, fwd: false, from: nT, to: nF, dir: travelDir(s.c, s.tTo, -1), twin: null };
+            hF.twin = hT;
+            hT.twin = hF;
+            halfEdges.push(hF, hT);
+        });
+
+        // 4. 每个节点的出边按方向角 [0,2π) 排序
+        const normAngle = (d) => {
+            const a = Math.atan2(d.y, d.x);
+            return a < 0 ? a + Math.PI * 2 : a;
+        };
+        const outs = nodes.map(() => []);
+        halfEdges.forEach(h => outs[h.from].push(h));
+        outs.forEach(list => list.sort((a, b) => normAngle(a.dir) - normAngle(b.dir)));
+
+        // 5. 面绕行：next = 角度序中「来向 (twin)」的前一条出边
+        const visited = new Set();
+        const cycles = [];
+        halfEdges.forEach(start => {
+            if (visited.has(start)) return;
+            const cycle = [];
+            let cur = start, closed = false;
+            for (let step = 0; step <= halfEdges.length; step++) {
+                visited.add(cur);
+                cycle.push(cur);
+                const list = outs[cur.to];
+                const idx = list.indexOf(cur.twin);
+                if (idx < 0) return;
+                cur = list[(idx - 1 + list.length) % list.length];
+                if (cur === start) { closed = true; break; }
+            }
+            if (closed) cycles.push(cycle);
+        });
+
+        // 6. 环 → 采样多边形 + 面积；y 向下时有界面为正面积 (外侧面/退化环为负)
+        const appendPoints = (poly, h) => {
+            const s = h.seg;
+            const t0 = h.fwd ? s.tFrom : s.tTo;
+            const t1 = h.fwd ? s.tTo : s.tFrom;
+            if (s.c.type === 'line') {
+                poly.push(curvePointAt(s.c, t1));
+                return;
+            }
+            const arcLen = Math.abs(t1 - t0) * s.c.r;
+            const n = Math.max(2, Math.min(240, Math.ceil(arcLen / 2)));
+            for (let k = 1; k <= n; k++) poly.push(curvePointAt(s.c, t0 + (t1 - t0) * k / n));
+        };
+        const faces = [];
+        cycles.forEach(cycle => {
+            const poly = [];
+            cycle.forEach(h => appendPoints(poly, h));
+            if (poly.length < 3) return;
+            const area = polyArea(poly);
+            if (area > 1e-6) faces.push({ poly: poly, area: area });
+        });
+        if (!faces.length) return null;
+
+        // 7. 包含种子点的面积最小面 (嵌套时取最内层)
+        let best = null;
+        faces.forEach(f => {
+            if (!pointInPoly(px, py, f.poly)) return;
+            if (!best || Math.abs(f.area) < Math.abs(best.area)) best = f;
+        });
+        return best ? { poly: best.poly, area: best.area } : null;
+    }
+
     // ---------- 参数区间运算 ----------
     // 从定义域 domain {from,to} 中减去 cuts [{from,to}] (可乱序/重叠)，返回剩余区间数组
     function subtractIntervals(domain, cuts) {
@@ -248,6 +421,9 @@ const Geometry = (() => {
         makeLineCurveData,
         clipLineToView,
         sampleCurve,
+        polyArea,
+        pointInPoly,
+        extractFace,
         subtractIntervals
     });
 })();

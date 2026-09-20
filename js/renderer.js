@@ -181,27 +181,14 @@ const Renderer = (() => {
     }
 
     // ---------- 填充层 (网格之上、曲线之下) ----------
+    // fill.poly 为世界坐标采样多边形 (几何变化后由 Store.refillFills 重新提取)
     function drawFills() {
         const fills = Store.getFills();
         if (!fills.length) return;
-        const view = View.getState();
         ctx.save();
         fills.forEach(f => {
-            const poly = [];
-            f.boundary.forEach(b => {
-                const c = Store.curveById(b.curveId);
-                if (!c) return;
-                const span = b.tTo - b.tFrom;
-                const steps = Math.max(2, Math.ceil(span * (c.r || 0) * view.scale / Config.ARC_SAMPLE_PX));
-                const n = c.type === 'circle' ? Math.max(2, Math.min(360, steps)) : 1;
-                for (let i = 0; i <= n; i++) {
-                    const t = b.tFrom + span * i / n;
-                    const p = Geometry.curvePointAt(c, t);
-                    if (b.reverse) poly.unshift({ x: p.x, y: p.y });
-                    else poly.push({ x: p.x, y: p.y });
-                }
-            });
-            if (poly.length < 3) return;
+            const poly = f.poly;
+            if (!poly || poly.length < 3) return;
             ctx.beginPath();
             poly.forEach((p, i) => {
                 const sp = View.worldToScreen(p.x, p.y);

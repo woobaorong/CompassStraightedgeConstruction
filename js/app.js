@@ -11,6 +11,10 @@
     const toolCompass = document.getElementById('toolCompass');
     const toolRuler = document.getElementById('toolRuler');
     const toolEraser = document.getElementById('toolEraser');
+    const toolFill = document.getElementById('toolFill');
+    const fillPalette = document.getElementById('fillPalette');
+    const customColor = document.getElementById('customColor');
+    const swatchBtns = fillPalette ? Array.from(fillPalette.querySelectorAll('.swatch')) : [];
     const clearBtn = document.getElementById('clearBtn');
     const undoBtn = document.getElementById('undoBtn');
     const resetViewBtn = document.getElementById('resetViewBtn');
@@ -31,7 +35,8 @@
         previewCurve: null,         // 预览曲线 (统一曲线结构，无 id)
         snappedPoint: null,         // 世界坐标
         snappedType: null,
-        snappedLabel: ''
+        snappedLabel: '',
+        currentColor: Config.FILL_COLORS[0]   // 油漆桶当前颜色
     };
 
     // 拖拽平移状态
@@ -199,6 +204,7 @@
 
     function updateStatusForTool() {
         if (state.currentTool === 'eraser') { updateStatus(Config.TEXT.statusEraser); return; }
+        if (state.currentTool === 'fill') { updateStatus(Config.TEXT.statusFill); return; }
         updateStatus(state.currentTool === 'compass' ? Config.TEXT.statusCompass : Config.TEXT.statusRuler);
     }
 
@@ -260,9 +266,17 @@
         toolCompass.classList.toggle('active', tool === 'compass');
         toolRuler.classList.toggle('active', tool === 'ruler');
         toolEraser.classList.toggle('active', tool === 'eraser');
+        toolFill.classList.toggle('active', tool === 'fill');
         rulerKindGroup.style.display = tool === 'ruler' ? 'flex' : 'none';
+        fillPalette.style.display = tool === 'fill' ? 'flex' : 'none';
         updateStatusForTool();
         render();
+    }
+
+    // 切换填充颜色 (预设色板 / 自定义取色器)
+    function setFillColor(color, activeBtn) {
+        state.currentColor = color;
+        swatchBtns.forEach(b => b.classList.toggle('active', b === activeBtn));
     }
 
     // 切换直尺模式 (线段/射线/直线)
@@ -353,6 +367,24 @@
             return;
         }
 
+        // 油漆桶: 点击封闭区域填色 (种子点 + 一次性面提取)
+        if (state.currentTool === 'fill') {
+            const face = Geometry.extractFace(Store.getCurves(), state.mouseWorld.x, state.mouseWorld.y);
+            if (face) {
+                Store.saveHistory();
+                Store.addFill({
+                    color: state.currentColor,
+                    seed: { x: state.mouseWorld.x, y: state.mouseWorld.y },
+                    poly: face.poly
+                });
+                updateStatusForTool();
+            } else {
+                updateStatus(Config.TEXT.fillFail);
+            }
+            render();
+            return;
+        }
+
         // 在当前位置重新检测吸附 (不依赖上次 mousemove 的旧值)
         const snap = Snap.find(state.mouseWorld.x, state.mouseWorld.y, drawCtx());
         applySnap(snap);
@@ -385,21 +417,24 @@
     function finishDrawing(useX, useY) {
         const scale = View.getState().scale;
         const sx = state.startPoint.x, sy = state.startPoint.y;
+        let created = null;
 
         if (state.currentTool === 'compass') {
             const r = Math.hypot(useX - sx, useY - sy);
             // 最小半径 (屏幕像素，避免过小)
             if (r * scale >= Config.MIN_SHAPE_SCREEN) {
                 Store.saveHistory();
-                Store.makeCircleCurve(sx, sy, r);
+                created = Store.makeCircleCurve(sx, sy, r);
             }
         } else {
             const dist = Math.hypot(useX - sx, useY - sy);
             if (dist * scale >= Config.MIN_SHAPE_SCREEN) {
                 Store.saveHistory();
-                Store.makeLineCurve(state.startPoint, { x: useX, y: useY }, state.rulerKind);
+                created = Store.makeLineCurve(state.startPoint, { x: useX, y: useY }, state.rulerKind);
             }
         }
+        // 新曲线可能把已有填充区域分割 → 重新提取并补建被分开的部分
+        if (created) Store.refillFills(Geometry.extractFace, [created]);
         cancelDrawing();
         updateStatusForTool();
     }
@@ -470,6 +505,8 @@
                 Store.saveHistory();
                 const scale = View.getState().scale;
                 plan.forEach(p => Store.splitCurve(p.curveId, p.ranges, Config.MIN_SHAPE_SCREEN / scale));
+                // 擦除后重新提取填充: 包围线被擦开 → 填充消失; 仍封闭 → 更新边界
+                Store.refillFills(Geometry.extractFace, []);
             }
             resetErase();
             updateStatusForTool();
@@ -494,7 +531,10 @@
     toolCompass.addEventListener('click', () => setTool('compass'));
     toolRuler.addEventListener('click', () => setTool('ruler'));
     toolEraser.addEventListener('click', () => setTool('eraser'));
+    toolFill.addEventListener('click', () => setTool('fill'));
     kindBtns.forEach(btn => btn.addEventListener('click', () => setRulerKind(btn.dataset.kind)));
+    swatchBtns.forEach(btn => btn.addEventListener('click', () => setFillColor(btn.dataset.color, btn)));
+    customColor.addEventListener('input', (e) => setFillColor(e.target.value, null));
     clearBtn.addEventListener('click', clearAll);
     undoBtn.addEventListener('click', undo);
     resetViewBtn.addEventListener('click', () => View.reset());

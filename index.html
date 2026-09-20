@@ -24,11 +24,25 @@
                 <button id="toolEraser" class="tool-btn" data-tool="eraser">
                     🧹 橡皮
                 </button>
+                <button id="toolFill" class="tool-btn" data-tool="fill">
+                    🪣 填充
+                </button>
             </div>
             <div class="tool-group sub" id="rulerKindGroup" style="display:none;" title="直尺绘制模式">
                 <button class="kind-btn active" data-kind="segment">线段</button>
                 <button class="kind-btn" data-kind="ray">射线</button>
                 <button class="kind-btn" data-kind="line">直线</button>
+            </div>
+            <div class="tool-group sub" id="fillPalette" style="display:none;" title="填充颜色">
+                <button class="swatch active" data-color="#ef4444" style="background:#ef4444" title="填充色"></button>
+                <button class="swatch" data-color="#f97316" style="background:#f97316" title="填充色"></button>
+                <button class="swatch" data-color="#eab308" style="background:#eab308" title="填充色"></button>
+                <button class="swatch" data-color="#22c55e" style="background:#22c55e" title="填充色"></button>
+                <button class="swatch" data-color="#06b6d4" style="background:#06b6d4" title="填充色"></button>
+                <button class="swatch" data-color="#3b82f6" style="background:#3b82f6" title="填充色"></button>
+                <button class="swatch" data-color="#a855f7" style="background:#a855f7" title="填充色"></button>
+                <button class="swatch" data-color="#ec4899" style="background:#ec4899" title="填充色"></button>
+                <input type="color" id="customColor" value="#f97316" title="自定义颜色">
             </div>
             <div class="status" id="statusMsg">
                 圆规: 点击圆心 → 拖动定半径
