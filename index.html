@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>尺规作图 · 专业模拟器</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="app">
+        <div class="canvas-wrapper">
+            <canvas id="board" width="900" height="650"></canvas>
+            <div class="snap-indicator" id="snapIndicator">吸附</div>
+            <div class="zoom-indicator" id="zoomIndicator">100%</div>
+        </div>
+        <div class="toolbar">
+            <div class="tool-group">
+                <button id="toolCompass" class="tool-btn active" data-tool="compass">
+                    ⭕ 圆规
+                </button>
+                <button id="toolRuler" class="tool-btn" data-tool="ruler">
+                    📏 直尺
+                </button>
+            </div>
+            <div class="status" id="statusMsg">
+                圆规: 点击圆心 → 拖动定半径
+            </div>
+            <label class="toggle-wrap" title="圆周上任意点也可吸附">
+                <input type="checkbox" id="circleSnapToggle" checked>
+                圆周吸附
+            </label>
+            <button class="action-btn small" id="resetViewBtn">重置视野</button>
+            <div style="display:flex;gap:8px;">
+                <button id="undoBtn" class="action-btn undo">撤销</button>
+                <button id="clearBtn" class="action-btn">清空</button>
+            </div>
+        </div>
+        <div class="info-bar">
+            <span><span class="dot red"></span> 圆心</span>
+            <span><span class="dot green"></span> 线段端点</span>
+            <span><span class="dot orange"></span> 交点(线-线/线-圆/圆-圆)</span>
+            <span><span class="dot purple"></span> 圆周上点</span>
+            <span><span class="dot pink"></span> 线段上投影点</span>
+            <span class="help-tip">💡 滚轮缩放 · 按住滚轮拖拽平移</span>
+        </div>
+    </div>
+
+    <!-- 脚本按依赖顺序加载：配置 → 几何 → 数据 → 视图 → 吸附 → 渲染 → 控制器 -->
+    <script src="js/config.js"></script>
+    <script src="js/geometry.js"></script>
+    <script src="js/store.js"></script>
+    <script src="js/view.js"></script>
+    <script src="js/snap.js"></script>
+    <script src="js/renderer.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>

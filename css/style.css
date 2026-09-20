@@ -1,0 +1,244 @@
+/* ============================================================
+ * 尺规作图 · 专业模拟器 — 样式表
+ * ============================================================ */
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    user-select: none;
+}
+
+body {
+    background: #1a1a1a;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+}
+
+.app {
+    background: #1e1e1e;
+    border-radius: 24px;
+    padding: 20px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8), 0 0 0 1px #3a3a3a inset;
+}
+
+/* ---------- 画布区 ---------- */
+.canvas-wrapper {
+    background: #fbfbfb;
+    border-radius: 16px;
+    box-shadow: 0 0 0 1px #3a3a3a, 0 8px 24px rgba(0, 0, 0, 0.6);
+    padding: 6px;
+    position: relative;
+}
+
+canvas {
+    display: block;
+    width: 900px;
+    height: 650px;
+    border-radius: 12px;
+    cursor: crosshair;
+    background: #ffffff;
+}
+
+canvas.grabbing {
+    cursor: grabbing;
+}
+
+/* ---------- 工具栏 ---------- */
+.toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 16px;
+    gap: 12px;
+    color: #ddd;
+    padding: 0 4px;
+    flex-wrap: wrap;
+}
+
+.tool-group {
+    display: flex;
+    gap: 6px;
+    background: #2a2a2a;
+    padding: 5px;
+    border-radius: 40px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.6), 0 0 0 1px #3f3f3f inset;
+}
+
+.tool-btn {
+    background: transparent;
+    border: none;
+    color: #aaa;
+    font-weight: 600;
+    font-size: 14px;
+    padding: 8px 18px;
+    border-radius: 30px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    letter-spacing: 0.3px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+}
+
+.tool-btn:hover {
+    background: #3a3a3a;
+    color: #fff;
+}
+
+.tool-btn.active {
+    background: #4c7aff;
+    color: white;
+    box-shadow: 0 4px 12px rgba(76, 122, 255, 0.5);
+}
+
+.action-btn {
+    background: #333;
+    border: none;
+    color: #eee;
+    font-weight: 600;
+    font-size: 14px;
+    padding: 8px 20px;
+    border-radius: 30px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.5), 0 0 0 1px #4a4a4a inset;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+}
+
+.action-btn:hover {
+    background: #444;
+    color: white;
+}
+
+.action-btn:active {
+    transform: scale(0.97);
+}
+
+.action-btn.undo {
+    background: #4a3a2a;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.5), 0 0 0 1px #6a4a2a inset;
+}
+
+.action-btn.undo:hover {
+    background: #6a4a2a;
+}
+
+.action-btn.small {
+    padding: 6px 14px;
+    font-size: 13px;
+}
+
+.status {
+    font-size: 13px;
+    color: #bbb;
+    background: #2a2a2a;
+    padding: 6px 16px;
+    border-radius: 40px;
+    box-shadow: 0 0 0 1px #3f3f3f inset;
+    min-width: 200px;
+    text-align: center;
+    white-space: nowrap;
+}
+
+/* ---------- 吸附 / 缩放指示器 ---------- */
+.snap-indicator {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    color: white;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 5px 12px;
+    border-radius: 20px;
+    opacity: 0;
+    transition: opacity 0.15s;
+    pointer-events: none;
+    letter-spacing: 0.5px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+
+.snap-indicator.show {
+    opacity: 1;
+}
+
+.snap-indicator.endpoint { background: #16a34a; }
+.snap-indicator.intersection { background: #f97316; }
+.snap-indicator.circle { background: #7c3aed; }
+.snap-indicator.center { background: #b91c1c; }
+.snap-indicator.line { background: #ec4899; }
+
+.zoom-indicator {
+    position: absolute;
+    bottom: 14px;
+    left: 14px;
+    background: rgba(30, 30, 30, 0.85);
+    color: #eee;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 5px 12px;
+    border-radius: 20px;
+    letter-spacing: 0.4px;
+    pointer-events: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    backdrop-filter: blur(4px);
+}
+
+/* ---------- 图例信息栏 ---------- */
+.info-bar {
+    display: flex;
+    gap: 12px;
+    font-size: 12px;
+    color: #888;
+    margin-top: 10px;
+    padding: 0 4px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.info-bar span {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.dot.red { background: #b91c1c; }
+.dot.green { background: #16a34a; }
+.dot.orange { background: #f97316; }
+.dot.purple { background: #7c3aed; }
+.dot.pink { background: #ec4899; }
+
+/* ---------- 开关与提示 ---------- */
+.toggle-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #aaa;
+    background: #2a2a2a;
+    padding: 6px 12px;
+    border-radius: 30px;
+    box-shadow: 0 0 0 1px #3f3f3f inset;
+}
+
+.toggle-wrap input {
+    accent-color: #4c7aff;
+    cursor: pointer;
+}
+
+.help-tip {
+    color: #7a9eff;
+    font-weight: 500;
+}
