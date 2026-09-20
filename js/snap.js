@@ -5,9 +5,11 @@ const Snap = (() => {
 
     let circleSnapEnabled = true;   // 圆周吸附开关 (由 UI 控制)
     let axisSnapEnabled = true;     // 横平竖直吸附开关 (由 UI 控制)
+    let gridSnapEnabled = true;     // 网格吸附开关 (由 UI 控制)
 
     function setCircleSnapEnabled(enabled) { circleSnapEnabled = enabled; }
     function setAxisSnapEnabled(enabled) { axisSnapEnabled = enabled; }
+    function setGridSnapEnabled(enabled) { gridSnapEnabled = enabled; }
 
     // 收集所有吸附候选点 (世界坐标)
     function collectAllCandidates(wx, wy) {
@@ -58,62 +60,93 @@ const Snap = (() => {
         return candidates;
     }
 
-    // 绘制中的水平/垂直轴候选: start→mouse 方向与坐标轴夹角 ≤ 0.5° 时投影到轴线
-    // 返回 null 或 { x, y, type:'axis', label, priority }
-    function axisCandidate(startPoint, wx, wy) {
-        if (!axisSnapEnabled || !startPoint) return null;
-        const dx = wx - startPoint.x, dy = wy - startPoint.y;
-        if (Math.hypot(dx, dy) < 1e-9) return null;
-
-        const a = Math.atan2(dy, dx);
-        const k = Math.round(a / (Math.PI / 2));
-        const diff = Math.abs(a - k * Math.PI / 2);
-        if (diff > Config.AXIS_SNAP_TOLERANCE && diff < Math.PI / 2 - Config.AXIS_SNAP_TOLERANCE) return null;
-
-        // 投影到过起点的水平/垂直轴线 (屏幕距离足够近才触发)
-        const horizontal = (k % 2 === 0);
-        const px = horizontal ? wx : startPoint.x;
-        const py = horizontal ? startPoint.y : wy;
-
-        const pScreen = View.worldToScreen(px, py);
-        const mScreen = View.worldToScreen(wx, wy);
-        if (Math.hypot(pScreen.x - mScreen.x, pScreen.y - mScreen.y) > Config.SNAP_DIST_SCREEN * 40) return null;
-
-        return {
-            x: px, y: py, type: 'axis',
-            label: horizontal ? '水平' : '垂直',
-            priority: Config.PRIORITY.axis
-        };
-    }
-
-    // 找出最佳吸附点：屏幕距离阈值内，按「距离 - 优先级加分」评分
+    // 找出最佳吸附点。
+    // 核心思路：axis 与 grid 链式组合 —— axis 把鼠标拉到轴线，grid 再把轴投影点吸到最近网格点。
+    //   这样两者"同时起效"：鼠标方向接近水平/垂直时，自动吸附到「轴线上的最近网格点」。
     // drawCtx: { startPoint } 绘制中传入起点以启用水平/垂直吸附
     function find(wx, wy, drawCtx) {
         const mScreen = View.worldToScreen(wx, wy);
+        const startPoint = drawCtx && drawCtx.startPoint;
+
+        // ---------- 第一步：axis 投影 (可选) ----------
+        let baseX = wx, baseY = wy;
+        let axisActive = null;
+        if (axisSnapEnabled && startPoint) {
+            const dx = wx - startPoint.x, dy = wy - startPoint.y;
+            if (Math.hypot(dx, dy) >= 1e-9) {
+                const a = Math.atan2(dy, dx);
+                const k = Math.round(a / (Math.PI / 2));
+                const diff = Math.abs(a - k * Math.PI / 2);
+                if (diff <= Config.AXIS_SNAP_TOLERANCE) {
+                    const horizontal = (k % 2 === 0);
+                    const px = horizontal ? wx : startPoint.x;
+                    const py = horizontal ? startPoint.y : wy;
+                    const pScreen = View.worldToScreen(px, py);
+                    const ms = View.worldToScreen(wx, wy);
+                    if (Math.hypot(pScreen.x - ms.x, pScreen.y - ms.y) <= Config.SNAP_DIST_SCREEN * 1.5) {
+                        baseX = px; baseY = py;
+                        axisActive = { x: px, y: py, horizontal: horizontal };
+                    }
+                }
+            }
+        }
+
+        // ---------- 第二步：在 base 点上叠加 grid 吸附 ----------
+        let gridActive = false;
+        const spacing = (function() {
+            let s = Config.GRID_BASE_SPACING;
+            const sc = View.getState().scale;
+            while (s * sc < 20) s *= 5;
+            while (s * sc > 200) s /= 5;
+            return s;
+        })();
+        if (gridSnapEnabled) {
+            const gx = Math.round(baseX / spacing) * spacing;
+            const gy = Math.round(baseY / spacing) * spacing;
+            const dWorld = Math.hypot(gx - baseX, gy - baseY);
+            const scale = View.getState().scale;
+            // grid 距离阈值按场景区分：
+            //   链式 (axis 已触发) 10px —— axis 已把鼠标收窄到轴线上，再吸网格点更稳
+            //   纯 grid 6px —— 避免"全域都吸附"的过敏感 (约为网格间距的 12%)
+            const gridThresh = axisActive ? 10 : 6;
+            if (dWorld * scale <= gridThresh) {
+                baseX = gx; baseY = gy;
+                gridActive = true;
+            }
+        }
+
+        // ---------- 第三步：组合返回 ----------
+        if (axisActive && gridActive) {
+            return {
+                x: baseX, y: baseY, type: 'axis_grid',
+                label: (axisActive.horizontal ? '水平' : '垂直') + ' (网格)',
+                priority: Config.PRIORITY.axis
+            };
+        }
+        if (axisActive) {
+            return {
+                x: axisActive.x, y: axisActive.y,
+                type: 'axis',
+                label: axisActive.horizontal ? '水平' : '垂直',
+                priority: Config.PRIORITY.axis
+            };
+        }
+        if (gridActive) {
+            return { x: baseX, y: baseY, type: 'grid', label: '网格', priority: 50 };
+        }
+
+        // ---------- 第四步：普通候选评分 ----------
         const candidates = collectAllCandidates(wx, wy);
-
-        const axis = axisCandidate(drawCtx && drawCtx.startPoint, wx, wy);
-        if (axis) candidates.push(axis);
-
-        let best = null;
-        let bestScore = Infinity;
-
+        let best = null, bestScore = Infinity;
         candidates.forEach(p => {
             const pScreen = View.worldToScreen(p.x, p.y);
             const dScreen = Math.hypot(pScreen.x - mScreen.x, pScreen.y - mScreen.y);
-            if (dScreen > Config.SNAP_DIST_SCREEN && p.type !== 'axis') return;
-
-            const priorityBonus = p.priority * 0.15;
-            const score = dScreen - priorityBonus;
-
-            if (score < bestScore) {
-                bestScore = score;
-                best = p;
-            }
+            if (dScreen > Config.SNAP_DIST_SCREEN) return;
+            const score = dScreen - p.priority * 0.15;
+            if (score < bestScore) { bestScore = score; best = p; }
         });
-
         return best;
     }
 
-    return Object.freeze({ setCircleSnapEnabled, setAxisSnapEnabled, find, collectAllCandidates });
+    return Object.freeze({ setCircleSnapEnabled, setAxisSnapEnabled, setGridSnapEnabled, find, collectAllCandidates });
 })();

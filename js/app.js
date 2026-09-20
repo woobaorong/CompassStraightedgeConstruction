@@ -300,9 +300,28 @@ if (rulerKindGroup) rulerKindGroup.style.display = 'flex';
 if (rulerKindPanel) rulerKindPanel.style.display = 'flex';
 
     // 切换填充颜色 (预设色板 / 自定义取色器)
+    // 选 'transparent' 进入擦除模式：填充工具点击 → 删除该区域的填充
     function setFillColor(color, activeBtn) {
         state.currentColor = color;
         swatchBtns.forEach(b => b.classList.toggle('active', b === activeBtn));
+    }
+
+    // 擦除指定区域内的所有填充 (透明色点击时调用)
+    function eraseFillAt(wx, wy) {
+        const face = Geometry.extractFace(Store.getCurves(), wx, wy);
+        if (!face) return false;
+        // 找到包含种子点的所有填充，多边形相交判定
+        let removed = 0;
+        Store.getFills().forEach(f => {
+            if (Geometry.pointInPoly(f.seed.x, f.seed.y, face.poly)) removed++;
+        });
+        if (removed === 0) return false;
+        Store.saveHistory();
+        Store.setFills(Store.getFills().filter(f => {
+            // 保留：种子不在 face 内的填充；删除：种子在 face 内的填充
+            return !Geometry.pointInPoly(f.seed.x, f.seed.y, face.poly);
+        }));
+        return true;
     }
 
     // 切换直尺模式 (线段/射线/直线)
@@ -439,6 +458,13 @@ if (rulerKindPanel) rulerKindPanel.style.display = 'flex';
 
         // 油漆桶: 点击封闭区域填色 (种子点 + 一次性面提取)
         if (state.currentTool === 'fill') {
+            // 透明色 = 擦除该区域的填充
+            if (state.currentColor === 'transparent') {
+                const ok = eraseFillAt(state.mouseWorld.x, state.mouseWorld.y);
+                updateStatus(ok ? '已取消该区域的填充' : (Config.TEXT.fillFail));
+                render();
+                return;
+            }
             const face = Geometry.extractFace(Store.getCurves(), state.mouseWorld.x, state.mouseWorld.y);
             if (face) {
                 Store.saveHistory();
@@ -651,6 +677,8 @@ if (rulerKindPanel) rulerKindPanel.style.display = 'flex';
     resetViewBtn.addEventListener('click', () => View.reset());
     circleSnapToggle.addEventListener('change', (e) => Snap.setCircleSnapEnabled(e.target.checked));
     axisSnapToggle.addEventListener('change', (e) => Snap.setAxisSnapEnabled(e.target.checked));
+    const gridSnapToggle = document.getElementById('gridSnapToggle');
+    if (gridSnapToggle) gridSnapToggle.addEventListener('change', (e) => Snap.setGridSnapEnabled(e.target.checked));
     if (blueprintToggle) blueprintToggle.addEventListener('change', (e) => setTheme(e.target.checked ? 'blueprint' : 'default'));
 
     // 绘制中启用水平/垂直吸附的上下文

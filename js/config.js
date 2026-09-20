@@ -24,6 +24,9 @@ const Config = Object.freeze({
     // 网格基准间距 (世界坐标)
     GRID_BASE_SPACING: 50,
 
+    // 网格吸附距离 (世界单位)：鼠标位置距最近网格点小于该值则吸附
+    GRID_SNAP_DIST: 12,
+
     // 历史记录上限
     MAX_HISTORY: 50,
 
@@ -96,6 +99,7 @@ const Config = Object.freeze({
             circle:       { color: '#7c3aed', fill: 'rgba(124, 58, 237, 0.3)' },
             line:         { color: '#ec4899', fill: 'rgba(236, 72, 153, 0.3)' },
             axis:         { color: '#0d9488', fill: 'rgba(13, 148, 136, 0.3)' },
+            grid:         { color: '#6b7280', fill: 'rgba(107, 114, 128, 0.3)' },
             default:      { color: '#4c7aff', fill: 'rgba(76, 122, 255, 0.3)' }
         })
     }),
@@ -111,5 +115,6 @@ const Config = Object.freeze({
     }),
 
     // 水平垂直吸附的角度容差 (弧度，0.5°)
+    // 调小让 axis 触发更严，鼠标稍有倾斜时让 grid 接管 → 两者真正共存
     AXIS_SNAP_TOLERANCE: 0.5 * Math.PI / 180
 });

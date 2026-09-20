@@ -37,6 +37,7 @@
                     <button class="swatch" data-color="#3b82f6" style="background:#3b82f6" title="#3b82f6"></button>
                     <button class="swatch" data-color="#a855f7" style="background:#a855f7" title="#a855f7"></button>
                     <button class="swatch" data-color="#ec4899" style="background:#ec4899" title="#ec4899"></button>
+                    <button class="swatch swatch-transparent" data-color="transparent" title="透明 (取消填充)" aria-label="取消填充"></button>
                     <label class="swatch swatch-custom" title="自定义颜色">
                         <input type="color" id="customColor" value="#f97316">
                         <span class="swatch-custom-plus">+</span>
@@ -90,6 +91,10 @@
             <label class="toggle-wrap" title="圆周上任意点也可吸附">
                 <input type="checkbox" id="circleSnapToggle" checked>
                 圆周吸附
+            </label>
+            <label class="toggle-wrap" title="鼠标位置吸附到最近的网格交叉点">
+                <input type="checkbox" id="gridSnapToggle" checked>
+                网格吸附
             </label>
             <label class="toggle-wrap" title="启用蓝图配色（蓝底/深灰线/红色顶点）">
                 <input type="checkbox" id="blueprintToggle" checked>

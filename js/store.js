@@ -267,13 +267,14 @@ const Store = (() => {
     // 返回内部数组引用（渲染/吸附高频访问，避免拷贝；外部只读，勿直接修改）
     function getCurves() { return curves; }
     function getFills() { return fills; }
+    function setFills(arr) { fills = arr; }
     function getVertexLabels() { return vertexLabels; }
 
     return Object.freeze({
         saveHistory, undo,
         addCurve, makeLineCurve, makeCircleCurve, removeCurve, curveById, splitCurve,
         addFill, refillFills,
-        clear, isEmpty, getCurves, getFills,
+        clear, isEmpty, getCurves, getFills, setFills,
         vertexKey, setVertexLabel, getVertexLabel, getVertexLabels
     });
 })();

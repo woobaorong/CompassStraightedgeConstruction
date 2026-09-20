@@ -134,6 +134,24 @@ canvas {
     justify-content: center;
     background: linear-gradient(135deg, #ef4444 0%, #ef4444 16.6%, #f97316 16.6%, #f97316 33.2%, #eab308 33.2%, #eab308 49.8%, #22c55e 49.8%, #22c55e 66.4%, #06b6d4 66.4%, #06b6d4 82.9%, #a855f7 82.9%);
 }
+
+/* 透明色 swatch (取消填充) — 白色底 + 红色斜线 */
+.swatch-transparent {
+    background: #ffffff !important;
+    position: relative;
+    overflow: hidden;
+}
+.swatch-transparent::after {
+    content: '';
+    position: absolute;
+    left: -2px;
+    right: -2px;
+    top: 50%;
+    height: 2px;
+    background: #ef4444;
+    transform: rotate(-45deg);
+    box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.3);
+}
 .swatch-custom input[type="color"] {
     position: absolute;
     inset: 0;
