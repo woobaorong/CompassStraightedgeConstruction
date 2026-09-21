@@ -3,7 +3,7 @@
  */
 const Snap = (() => {
 
-    let circleSnapEnabled = true;   // 圆周吸附开关 (由 UI 控制)
+    let circleSnapEnabled = true;   // 点线吸附开关 (由 UI 控制)
     let axisSnapEnabled = true;     // 横平竖直吸附开关 (由 UI 控制)
     let gridSnapEnabled = true;     // 网格吸附开关 (由 UI 控制)
 
