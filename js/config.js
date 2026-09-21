@@ -48,10 +48,10 @@ const Config = Object.freeze({
             background: '#ffffff',
             grid: '#f0f0f0',
             axis: '#e0e0e0',
-            line: '#1e3a8a',
+            line: '#000000',
             lineEndpoint: '#16a34a',
-            circle: '#b91c1c',
-            circleRadiusLine: 'rgba(185, 28, 28, 0.2)',
+            circle: '#000000',
+            circleRadiusLine: 'rgba(0, 0, 0, 0.2)',
             intersection: 'rgba(249, 115, 22, 0.6)',
             vertexLabel: '#1f2937',
             vertexLabelBg: 'rgba(255,255,255,0.85)'

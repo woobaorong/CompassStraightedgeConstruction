@@ -3,11 +3,11 @@
  */
 const Snap = (() => {
 
-    let circleSnapEnabled = true;   // 点线吸附开关 (由 UI 控制)
+    let pointSnapEnabled = true;    // 点线吸附开关 (端点/交点/圆心/线上/圆周)，关闭后仅剩网格与横平竖直 (由 UI 控制)
     let axisSnapEnabled = true;     // 横平竖直吸附开关 (由 UI 控制)
     let gridSnapEnabled = true;     // 网格吸附开关 (由 UI 控制)
 
-    function setCircleSnapEnabled(enabled) { circleSnapEnabled = enabled; }
+    function setCircleSnapEnabled(enabled) { pointSnapEnabled = enabled; }
     function setAxisSnapEnabled(enabled) { axisSnapEnabled = enabled; }
     function setGridSnapEnabled(enabled) { gridSnapEnabled = enabled; }
 
@@ -42,13 +42,11 @@ const Snap = (() => {
         });
 
         // 动态: 圆周 (弧域内截断)
-        if (circleSnapEnabled) {
-            curves.forEach(c => {
-                if (c.type !== 'circle') return;
-                const cp = Geometry.closestPointOnCurve(c, wx, wy);
-                candidates.push({ x: cp.x, y: cp.y, type: 'circle', label: Geometry.isFullCircle(c) ? '圆周' : '弧上', priority: Config.PRIORITY.circle });
-            });
-        }
+        curves.forEach(c => {
+            if (c.type !== 'circle') return;
+            const cp = Geometry.closestPointOnCurve(c, wx, wy);
+            candidates.push({ x: cp.x, y: cp.y, type: 'circle', label: Geometry.isFullCircle(c) ? '圆周' : '弧上', priority: Config.PRIORITY.circle });
+        });
 
         // 动态: 线上
         curves.forEach(c => {
@@ -136,6 +134,8 @@ const Snap = (() => {
         }
 
         // ---------- 第四步：普通候选评分 ----------
+        // 点线吸附关闭 → 端点/交点/圆心/线上/圆周一律不吸附，仅剩网格与横平竖直
+        if (!pointSnapEnabled) return null;
         const candidates = collectAllCandidates(wx, wy);
         let best = null, bestScore = Infinity;
         candidates.forEach(p => {

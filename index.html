@@ -4,46 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>尺规作图 · 专业模拟器</title>
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/style.css?v=7">
 </head>
 <body>
     <div class="app">
         <div class="canvas-wrapper">
             <canvas id="board"></canvas>
             <div class="snap-indicator" id="snapIndicator">吸附</div>
-        </div>
-
-        <!-- 左上：样式面板（仅显示当前工具相关的子面板） -->
-        <div class="corner-panel top-left style-panel" id="stylePanel">
-            <div class="style-card" id="lineStyleCard" title="线条样式">
-                <div class="seg-group" id="lineStyleGroup">
-                    <button class="seg-btn active" data-style="solid" title="实线">
-                        <span class="seg-icon seg-solid"></span>
-                        <span>实线</span>
-                    </button>
-                    <button class="seg-btn" data-style="dashed" title="虚线">
-                        <span class="seg-icon seg-dashed"></span>
-                        <span>虚线</span>
-                    </button>
-                </div>
-            </div>
-            <div class="style-card" id="fillCard" title="填充颜色">
-                <div class="swatch-grid" id="fillPalette">
-                    <button class="swatch active" data-color="#ef4444" style="background:#ef4444" title="#ef4444"></button>
-                    <button class="swatch" data-color="#f97316" style="background:#f97316" title="#f97316"></button>
-                    <button class="swatch" data-color="#eab308" style="background:#eab308" title="#eab308"></button>
-                    <button class="swatch" data-color="#22c55e" style="background:#22c55e" title="#22c55e"></button>
-                    <button class="swatch" data-color="#06b6d4" style="background:#06b6d4" title="#06b6d4"></button>
-                    <button class="swatch" data-color="#3b82f6" style="background:#3b82f6" title="#3b82f6"></button>
-                    <button class="swatch" data-color="#a855f7" style="background:#a855f7" title="#a855f7"></button>
-                    <button class="swatch" data-color="#ec4899" style="background:#ec4899" title="#ec4899"></button>
-                    <button class="swatch swatch-transparent" data-color="transparent" title="透明 (取消填充)" aria-label="取消填充"></button>
-                    <label class="swatch swatch-custom" title="自定义颜色">
-                        <input type="color" id="customColor" value="#f97316">
-                        <span class="swatch-custom-plus">+</span>
-                    </label>
-                </div>
-            </div>
         </div>
 
         <!-- 右上：工具栏 (图标 + 中文) -->
@@ -72,8 +39,39 @@
             </div>
         </div>
 
-        <!-- 右侧直尺模式 (独立面板，放在工具栏下方一行，仅 ruler 工具时显示) -->
+        <!-- 工具栏下方右侧堆叠面板 (纵向)：
+             第一行 = 填充色板 (fill) 或 实线/虚线 (ruler/compass)
+             第二行 = 线段/射线/直线 (ruler) -->
         <div class="corner-panel ruler-kind-panel" id="rulerKindPanel">
+            <div class="style-card" id="fillCard" title="填充颜色">
+                <div class="swatch-grid" id="fillPalette">
+                    <button class="swatch active" data-color="#ef4444" style="background:#ef4444" title="#ef4444"></button>
+                    <button class="swatch" data-color="#f97316" style="background:#f97316" title="#f97316"></button>
+                    <button class="swatch" data-color="#eab308" style="background:#eab308" title="#eab308"></button>
+                    <button class="swatch" data-color="#22c55e" style="background:#22c55e" title="#22c55e"></button>
+                    <button class="swatch" data-color="#06b6d4" style="background:#06b6d4" title="#06b6d4"></button>
+                    <button class="swatch" data-color="#3b82f6" style="background:#3b82f6" title="#3b82f6"></button>
+                    <button class="swatch" data-color="#a855f7" style="background:#a855f7" title="#a855f7"></button>
+                    <button class="swatch" data-color="#ec4899" style="background:#ec4899" title="#ec4899"></button>
+                    <button class="swatch swatch-transparent" data-color="transparent" title="透明 (取消填充)" aria-label="取消填充"></button>
+                    <label class="swatch swatch-custom" title="自定义颜色">
+                        <input type="color" id="customColor" value="#f97316">
+                        <span class="swatch-custom-plus">+</span>
+                    </label>
+                </div>
+            </div>
+            <div class="style-card" id="lineStyleCard" title="线条样式">
+                <div class="seg-group" id="lineStyleGroup">
+                    <button class="seg-btn active" data-style="solid" title="实线">
+                        <span class="seg-icon seg-solid"></span>
+                        <span>实线</span>
+                    </button>
+                    <button class="seg-btn" data-style="dashed" title="虚线">
+                        <span class="seg-icon seg-dashed"></span>
+                        <span>虚线</span>
+                    </button>
+                </div>
+            </div>
             <div class="tool-group sub" id="rulerKindGroup" title="直尺绘制模式">
                 <button class="kind-btn active" data-kind="segment">线段</button>
                 <button class="kind-btn" data-kind="ray">射线</button>
@@ -88,17 +86,17 @@
                 <input type="checkbox" id="axisSnapToggle" checked>
                 横平竖直
             </label>
-            <label class="toggle-wrap" title="圆周上任意点也可吸附">
+            <label class="toggle-wrap" title="吸附到端点/交点/圆心/线上/圆周；关闭后仅保留网格与横平竖直吸附">
                 <input type="checkbox" id="circleSnapToggle" checked>
                 点线吸附
             </label>
-            <label class="toggle-wrap" title="鼠标位置吸附到最近的网格交叉点">
-                <input type="checkbox" id="gridSnapToggle" checked>
-                网格吸附
-            </label>
-            <label class="toggle-wrap" title="启用蓝图配色（蓝底/深灰线/红色顶点）">
+            <label class="toggle-wrap" title="蓝图模式: 蓝底配色 + 网格显示与网格吸附；关闭后白底无网格">
                 <input type="checkbox" id="blueprintToggle" checked>
                 蓝图模式
+            </label>
+            <label class="toggle-wrap" title="隐藏所有点 (端点/圆心/交点) 及顶点标签，仅不显示，不影响吸附">
+                <input type="checkbox" id="hidePointsToggle">
+                隐藏点
             </label>
         </div>
 

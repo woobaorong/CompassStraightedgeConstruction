@@ -63,7 +63,9 @@ const Renderer = (() => {
     }
 
     // ---------- 动态网格 ----------
+    // 网格与坐标轴仅在蓝图模式显示 (与网格吸附合并为同一开关)
     function drawGrid() {
+        if (!currentState || currentState.theme !== 'blueprint') return;
         const view = View.getState();
         const theme = Config.THEME[(currentState && currentState.theme) || 'default'];
         ctx.save();
@@ -146,14 +148,16 @@ const Renderer = (() => {
             ctx.lineTo(sb.x, sb.y);
             ctx.stroke();
 
-            // 真实端点圆点 (屏幕尺寸固定)
-            ctx.fillStyle = theme.lineEndpoint;
-            Geometry.curveEndpoints(c).forEach(e => {
-                const sp = View.worldToScreen(e.x, e.y);
-                ctx.beginPath();
-                ctx.arc(sp.x, sp.y, 3.5, 0, 2 * Math.PI);
-                ctx.fill();
-            });
+            // 真实端点圆点 (屏幕尺寸固定) — 隐藏点开关开启时跳过
+            if (!currentState.hidePoints) {
+                ctx.fillStyle = theme.lineEndpoint;
+                Geometry.curveEndpoints(c).forEach(e => {
+                    const sp = View.worldToScreen(e.x, e.y);
+                    ctx.beginPath();
+                    ctx.arc(sp.x, sp.y, 3.5, 0, 2 * Math.PI);
+                    ctx.fill();
+                });
+            }
         } else {
             const cScreen = View.worldToScreen(c.cx, c.cy);
             const rScreen = c.r * view.scale;
@@ -163,11 +167,13 @@ const Renderer = (() => {
                 ctx.stroke();
             }
 
-            // 圆心
-            ctx.fillStyle = theme.circle;
-            ctx.beginPath();
-            ctx.arc(cScreen.x, cScreen.y, 4, 0, 2 * Math.PI);
-            ctx.fill();
+            // 圆心 — 隐藏点开关开启时跳过
+            if (!currentState.hidePoints) {
+                ctx.fillStyle = theme.circle;
+                ctx.beginPath();
+                ctx.arc(cScreen.x, cScreen.y, 4, 0, 2 * Math.PI);
+                ctx.fill();
+            }
 
             // 半径虚线 (仅完整圆)
             if (Geometry.isFullCircle(c)) {
@@ -269,6 +275,7 @@ const Renderer = (() => {
 
     // ---------- 交点标记 (任意两类曲线之间) ----------
     function drawIntersectionMarkers() {
+        if (currentState.hidePoints) return;   // 隐藏点开关: 交点标记也不显示
         const curves = Store.getCurves();
         const theme = Config.THEME[(currentState && currentState.theme) || 'default'];
         ctx.save();
@@ -289,6 +296,7 @@ const Renderer = (() => {
     // ---------- 顶点命名标签 ----------
     // 收集所有"节点"(端点+交点+圆心)，按 EPS_NODE 去重后绘制 Store 中已命名的标签
     function drawVertexLabels(state) {
+        if (currentState.hidePoints) return;   // 隐藏点开关: 标签文字一并隐藏
         const labels = Store.getVertexLabels();
         if (!labels || !Object.keys(labels).length) return;
         const theme = Config.THEME[(currentState && currentState.theme) || 'default'];

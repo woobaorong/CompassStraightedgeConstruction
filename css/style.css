@@ -227,6 +227,9 @@ body.immersive .immersive-exit:hover { background: rgba(60, 60, 60, 0.85); }
     top: 74px;          /* 工具栏下方留 12px 间距 */
     right: 14px;
     z-index: 19;        /* 比工具栏低 1 级，避免覆盖 */
+    flex-direction: column;   /* 纵向堆叠: 线段射线直线/色板 → 实线虚线 → 连续 */
+    align-items: flex-end;    /* 各行右对齐 */
+    gap: 8px;
 }
 .ruler-kind-panel[hidden] { display: none !important; }
 

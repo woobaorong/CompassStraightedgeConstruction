@@ -15,7 +15,6 @@
     const toolVertex = document.getElementById('toolVertex');
     const fillPalette = document.getElementById('fillPalette');
     const customColor = document.getElementById('customColor');
-    const stylePanel = document.getElementById('stylePanel');
     const lineStyleCard = document.getElementById('lineStyleCard');
     const fillCard = document.getElementById('fillCard');
     const swatchBtns = fillPalette ? Array.from(fillPalette.querySelectorAll('.swatch:not(.swatch-custom)')) : [];
@@ -47,7 +46,8 @@
         snappedType: null,
         snappedLabel: '',
         currentColor: Config.FILL_COLORS[0],   // 油漆桶当前颜色
-        vertexHover: null           // 顶点工具 hover 的节点 (世界坐标)
+        vertexHover: null,          // 顶点工具 hover 的节点 (世界坐标)
+        hidePoints: false           // 隐藏点开关: 仅不显示点与标签，不影响吸附等逻辑
     };
 
     // 拖拽平移状态
@@ -282,22 +282,23 @@
         toolEraser.classList.toggle('active', tool === 'eraser');
         toolFill.classList.toggle('active', tool === 'fill');
         if (toolVertex) toolVertex.classList.toggle('active', tool === 'vertex');
-        // 直尺模式子面板：独立放在工具栏下一行
-        rulerKindGroup.style.display = tool === 'ruler' ? 'flex' : 'none';
-        if (rulerKindPanel) rulerKindPanel.style.display = tool === 'ruler' ? 'flex' : 'none';
-        // 左上角面板：绘制类工具显示线型，填充工具显示色板，其他工具隐藏整个面板
+        // 右侧堆叠面板 (工具栏下方): 线段射线直线(直尺) / 填充色板(填充) / 实线虚线(直尺·圆规) / 连续(直尺+线段)
+        const showKind = (tool === 'ruler');
         const showLine = (tool === 'compass' || tool === 'ruler');
         const showFill = (tool === 'fill');
+        rulerKindGroup.style.display = showKind ? 'flex' : 'none';
+        if (rulerKindPanel) rulerKindPanel.style.display = (showKind || showLine || showFill) ? 'flex' : 'none';
         if (lineStyleCard) lineStyleCard.style.display = showLine ? '' : 'none';
         if (fillCard) fillCard.style.display = showFill ? '' : 'none';
-        if (stylePanel) stylePanel.style.display = (showLine || showFill) ? 'flex' : 'none';
         updateStatusForTool();
         render();
     }
 
-// 初始同步 rulerKindGroup 可见性（默认 ruler 工具需要显示线段/射线/直线组）
-if (rulerKindGroup) rulerKindGroup.style.display = 'flex';
+// 初始同步右侧堆叠面板可见性 (默认 ruler 工具: 线段射线直线 + 实线虚线 + 连续)
+if (rulerKindGroup) rulerKindGroup.style.display = state.currentTool === 'ruler' ? 'flex' : 'none';
 if (rulerKindPanel) rulerKindPanel.style.display = 'flex';
+if (lineStyleCard) lineStyleCard.style.display = (state.currentTool === 'compass' || state.currentTool === 'ruler') ? '' : 'none';
+if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none';
 
     // 切换填充颜色 (预设色板 / 自定义取色器)
     // 选 'transparent' 进入擦除模式：填充工具点击 → 删除该区域的填充
@@ -548,8 +549,15 @@ if (rulerKindPanel) rulerKindPanel.style.display = 'flex';
         }
         // 新曲线可能把已有填充区域分割 → 重新提取并补建被分开的部分
         if (created) Store.refillFills(Geometry.extractFace, [created]);
-        cancelDrawing();
-        updateStatusForTool();
+        // 连续画线 (默认开启): 直尺+线段模式下，上一段终点自动作为下一段起点 (右键/ESC 结束链条)
+        if (created && state.currentTool === 'ruler' && state.rulerKind === 'segment') {
+            state.startPoint = { x: useX, y: useY };
+            state.previewCurve = null;
+            updateStatus('连续画线: 点击下一点 (右键/ESC 结束)');
+        } else {
+            cancelDrawing();
+            updateStatusForTool();
+        }
     }
 
     function onMouseMove(e) {
@@ -677,9 +685,17 @@ if (rulerKindPanel) rulerKindPanel.style.display = 'flex';
     resetViewBtn.addEventListener('click', () => View.reset());
     circleSnapToggle.addEventListener('change', (e) => Snap.setCircleSnapEnabled(e.target.checked));
     axisSnapToggle.addEventListener('change', (e) => Snap.setAxisSnapEnabled(e.target.checked));
-    const gridSnapToggle = document.getElementById('gridSnapToggle');
-    if (gridSnapToggle) gridSnapToggle.addEventListener('change', (e) => Snap.setGridSnapEnabled(e.target.checked));
-    if (blueprintToggle) blueprintToggle.addEventListener('change', (e) => setTheme(e.target.checked ? 'blueprint' : 'default'));
+    // 蓝图模式与网格吸附合并为同一开关: 蓝图开 → 蓝底配色 + 网格显示 + 网格吸附
+    if (blueprintToggle) blueprintToggle.addEventListener('change', (e) => {
+        const on = e.target.checked;
+        setTheme(on ? 'blueprint' : 'default');
+        Snap.setGridSnapEnabled(on);
+    });
+    const hidePointsToggle = document.getElementById('hidePointsToggle');
+    if (hidePointsToggle) hidePointsToggle.addEventListener('change', (e) => {
+        state.hidePoints = e.target.checked;
+        render();
+    });
 
     // 绘制中启用水平/垂直吸附的上下文
     function drawCtx() {
@@ -801,14 +817,8 @@ if (rulerKindPanel) rulerKindPanel.style.display = 'flex';
 updateZoomIndicator();
 // 初始同步主题 CSS 变量 (默认蓝图时背景已是蓝色)
 document.documentElement.style.setProperty('--canvas-bg', Config.THEME[state.theme].background);
-// 初始同步左上角样式面板的可见性（与当前工具匹配）
-if (stylePanel) {
-    const showLine = (state.currentTool === 'compass' || state.currentTool === 'ruler');
-    const showFill = (state.currentTool === 'fill');
-    if (lineStyleCard) lineStyleCard.style.display = showLine ? '' : 'none';
-    if (fillCard) fillCard.style.display = showFill ? '' : 'none';
-    stylePanel.style.display = (showLine || showFill) ? 'flex' : 'none';
-}
+// 初始同步: 网格吸附跟随蓝图模式开关 (两者合并为同一逻辑)
+Snap.setGridSnapEnabled(blueprintToggle ? blueprintToggle.checked : true);
 render();
 updateStatusForTool();
 })();
