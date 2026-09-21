@@ -270,11 +270,46 @@ const Store = (() => {
     function setFills(arr) { fills = arr; }
     function getVertexLabels() { return vertexLabels; }
 
+    // ---------- 导入 / 导出 (JSON 图形数据) ----------
+    // 导出: 曲线(含线型/附着约束) + 填充(颜色/种子/多边形) + 顶点标注 → 纯 JSON 对象
+    function serialize() {
+        return {
+            app: 'compass-straightedge',
+            version: 1,
+            curves: JSON.parse(JSON.stringify(curves)),
+            fills: JSON.parse(JSON.stringify(fills)),
+            vertexLabels: JSON.parse(JSON.stringify(vertexLabels))
+        };
+    }
+
+    // 导入: 覆盖当前全部图形数据。结构非法 → 返回 false 且不改动现有内容。
+    // nextId 按导入数据中的最大 id 重建，避免后续新建曲线 id 冲突。
+    function deserialize(data) {
+        if (!data || data.app !== 'compass-straightedge' || data.version !== 1) return false;
+        if (!Array.isArray(data.curves) || !Array.isArray(data.fills || [])) return false;
+        let next;
+        try {
+            next = JSON.parse(JSON.stringify({
+                curves: data.curves,
+                fills: data.fills || [],
+                vertexLabels: data.vertexLabels || {}
+            }));
+        } catch (err) { return false; }
+        const maxId = next.curves.concat(next.fills)
+            .reduce((m, o) => Math.max(m, (o && o.id) || 0), 0);
+        curves = next.curves;
+        fills = next.fills;
+        vertexLabels = next.vertexLabels;
+        nextId = maxId + 1;
+        return true;
+    }
+
     return Object.freeze({
         saveHistory, undo,
         addCurve, makeLineCurve, makeCircleCurve, removeCurve, curveById, splitCurve,
         addFill, refillFills,
         clear, isEmpty, getCurves, getFills, setFills,
-        vertexKey, setVertexLabel, getVertexLabel, getVertexLabels
+        vertexKey, setVertexLabel, getVertexLabel, getVertexLabels,
+        serialize, deserialize
     });
 })();

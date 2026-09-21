@@ -23,6 +23,9 @@
     const rulerKindPanel = document.getElementById('rulerKindPanel');
     const blueprintToggle = document.getElementById('blueprintToggle');
     const clearBtn = document.getElementById('clearBtn');
+    const importBtn = document.getElementById('importBtn');
+    const exportBtn = document.getElementById('exportBtn');
+    const importFile = document.getElementById('importFile');
     const undoBtn = document.getElementById('undoBtn');
     const resetViewBtn = document.getElementById('resetViewBtn');
     const circleSnapToggle = document.getElementById('circleSnapToggle');
@@ -681,6 +684,38 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
     swatchBtns.forEach(btn => btn.addEventListener('click', () => setFillColor(btn.dataset.color, btn)));
     customColor.addEventListener('input', (e) => setFillColor(e.target.value, null));
     clearBtn.addEventListener('click', clearAll);
+
+    // ---------- 导入 / 导出 (图形数据 JSON) ----------
+    if (exportBtn) exportBtn.addEventListener('click', () => {
+        const json = JSON.stringify(Store.serialize(), null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const a = document.createElement('a');
+        const d = new Date();
+        const pad = (n) => String(n).padStart(2, '0');
+        a.href = URL.createObjectURL(blob);
+        a.download = '图形数据-' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) +
+                     '-' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds()) + '.json';
+        a.click();
+        URL.revokeObjectURL(a.href);
+    });
+    if (importBtn) importBtn.addEventListener('click', () => importFile.click());
+    if (importFile) importFile.addEventListener('change', (e) => {
+        const file = e.target.files && e.target.files[0];
+        importFile.value = '';   // 允许重复选择同一文件
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+            let data;
+            try { data = JSON.parse(reader.result); }
+            catch (err) { alert('导入失败: 不是合法的 JSON 文件'); return; }
+            Store.saveHistory();   // 快照「导入前」状态 → Ctrl+Z 可撤销本次导入
+            if (!Store.deserialize(data)) { alert('导入失败: 文件不是本应用的图形数据格式'); return; }
+            cancelDrawing();
+            render();
+            updateStatus('导入成功: ' + file.name);
+        };
+        reader.readAsText(file);
+    });
     undoBtn.addEventListener('click', undo);
     resetViewBtn.addEventListener('click', () => View.reset());
     circleSnapToggle.addEventListener('change', (e) => Snap.setCircleSnapEnabled(e.target.checked));
