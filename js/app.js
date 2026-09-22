@@ -219,7 +219,7 @@
     function updateStatusForTool() {
         if (state.currentTool === 'eraser') { updateStatus(Config.TEXT.statusEraser); return; }
         if (state.currentTool === 'fill') { updateStatus(Config.TEXT.statusFill); return; }
-        if (state.currentTool === 'vertex') { updateStatus('顶点: 点击节点为其命名 (留空删除)'); return; }
+        if (state.currentTool === 'vertex') { updateStatus('顶点: 点击节点命名 / 已命名点可改名或留空删除'); return; }
         updateStatus(state.currentTool === 'compass' ? Config.TEXT.statusCompass : Config.TEXT.statusRuler);
     }
 
@@ -350,7 +350,19 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
     }
 
     // ---------- 顶点工具：节点拾取 ----------
-    // 收集所有节点 (端点 + 交点 + 圆心)，按屏幕距离返回最近的 (距离, worldX, worldY)
+    // 独立点实体拾取 (屏幕距离最近，可命中已无曲线依附的自由点)
+    function pickPoint(world, radiusScreen) {
+        const mScreen = View.worldToScreen(world.x, world.y);
+        let best = null;
+        Store.getPoints().forEach(p => {
+            const sp = View.worldToScreen(p.x, p.y);
+            const d = Math.hypot(sp.x - mScreen.x, sp.y - mScreen.y);
+            if (d <= radiusScreen && (!best || d < best.d)) best = { point: p, d: d };
+        });
+        return best;
+    }
+
+    // 收集所有节点 (独立点 + 端点 + 交点 + 圆心)，按屏幕距离返回最近的 (距离, worldX, worldY)
     function pickVertex(world, radiusScreen) {
         const mScreen = View.worldToScreen(world.x, world.y);
         const EPS = 1e-6;
@@ -359,6 +371,7 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
             const k = Math.round(x / EPS) + ',' + Math.round(y / EPS);
             if (!seen.has(k)) seen.set(k, { x: x, y: y });
         };
+        Store.getPoints().forEach(p => add(p.x, p.y));
         Store.getCurves().forEach(c => {
             if (c.type === 'line') {
                 add(c.p0.x + c.dir.x * c.tMin, c.p0.y + c.dir.y * c.tMin);
@@ -447,8 +460,16 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
         if (e.button !== 0) return;
         e.preventDefault();
 
-        // 橡皮擦: 开始笔画
+        // 橡皮擦: 优先命中独立点 → 单击只删该点 (不影响线)；否则开始曲线擦除笔画
         if (state.currentTool === 'eraser') {
+            const pp = pickPoint(state.mouseWorld, Config.ERASER_RADIUS_SCREEN);
+            if (pp) {
+                Store.saveHistory();
+                Store.removePoint(pp.point.id);
+                updateStatus('已删除点 "' + pp.point.name + '"');
+                render();
+                return;
+            }
             const pick = pickCurve(state.mouseWorld, Config.ERASER_RADIUS_SCREEN);
             if (pick) {
                 erase.active = true;
@@ -485,15 +506,26 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
             return;
         }
 
-        // 顶点工具: 拾取最近节点，prompt 命名
+        // 顶点工具: 优先命中独立点实体 (改名/删除)，否则命中派生节点 → 新建点实体
         if (state.currentTool === 'vertex') {
-            const pick = pickVertex(state.mouseWorld, Config.SNAP_DIST_SCREEN);
-            if (pick) {
-                const current = Store.getVertexLabel(pick.x, pick.y) || '';
-                const name = window.prompt(Config.TEXT.vertexLabelPrompt, current);
+            const pp = pickPoint(state.mouseWorld, Config.SNAP_DIST_SCREEN);
+            if (pp) {
+                const name = window.prompt(Config.TEXT.vertexLabelPrompt, pp.point.name || '');
                 if (name !== null) {
                     Store.saveHistory();
-                    Store.setVertexLabel(pick.x, pick.y, name.trim());
+                    const trimmed = name.trim();
+                    if (trimmed) pp.point.name = trimmed;   // 改名
+                    else Store.removePoint(pp.point.id);    // 留空 → 删除该点
+                    render();
+                }
+                return;
+            }
+            const pick = pickVertex(state.mouseWorld, Config.SNAP_DIST_SCREEN);
+            if (pick) {
+                const name = window.prompt(Config.TEXT.vertexLabelPrompt, '');
+                if (name !== null && name.trim()) {
+                    Store.saveHistory();
+                    Store.addPoint(pick.x, pick.y, name.trim());
                     render();
                 }
             }

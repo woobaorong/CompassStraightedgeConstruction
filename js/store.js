@@ -7,12 +7,12 @@ const Store = (() => {
 
     let curves = [];    // 统一曲线数组
     let fills = [];     // 填充区域 (P7 引入)
-    let vertexLabels = {};  // 顶点命名 (key = "xE6,yE6" → 名称字符串)
+    let points = [];    // 独立点实体 { id, x, y, name } — 已命名顶点物化为对象，不随曲线删除而消失
     let nextId = 1;
-    let history = [];   // 快照栈 { curves, fills, vertexLabels }
+    let history = [];   // 快照栈 { curves, fills, points }
 
     function snapshot() {
-        return JSON.parse(JSON.stringify({ curves: curves, fills: fills, vertexLabels: vertexLabels }));
+        return JSON.parse(JSON.stringify({ curves: curves, fills: fills, points: points }));
     }
 
     function saveHistory() {
@@ -26,7 +26,7 @@ const Store = (() => {
         const s = history.pop();
         curves = s.curves;
         fills = s.fills || [];
-        vertexLabels = s.vertexLabels || {};
+        points = s.points || [];
         return true;
     }
 
@@ -247,60 +247,73 @@ const Store = (() => {
     function clear() {
         curves = [];
         fills = [];
-        vertexLabels = {};
+        points = [];
     }
 
     function isEmpty() {
         return curves.length === 0 && fills.length === 0;
     }
 
-    // 顶点命名 (key 坐标精度 1e-6，与 renderer.js 一致)
-    const EPS_VL = 1e-6;
-    function vertexKey(x, y) { return Math.round(x / EPS_VL) + ',' + Math.round(y / EPS_VL); }
-    function setVertexLabel(x, y, name) {
-        const k = vertexKey(x, y);
-        if (name && name.length) vertexLabels[k] = name;
-        else delete vertexLabels[k];
+    // ---------- 独立点实体 (已命名顶点) ----------
+    // 点是独立对象: 删除曲线不影响它；顶点工具命名时创建，留空时删除
+    function getPoints() { return points; }
+    function addPoint(x, y, name) {
+        const p = { id: nextId++, x: x, y: y, name: name };
+        points.push(p);
+        return p;
     }
-    function getVertexLabel(x, y) { return vertexLabels[vertexKey(x, y)] || null; }
+    function removePoint(id) { points = points.filter(p => p.id !== id); }
 
     // 返回内部数组引用（渲染/吸附高频访问，避免拷贝；外部只读，勿直接修改）
     function getCurves() { return curves; }
     function getFills() { return fills; }
     function setFills(arr) { fills = arr; }
-    function getVertexLabels() { return vertexLabels; }
 
     // ---------- 导入 / 导出 (JSON 图形数据) ----------
-    // 导出: 曲线(含线型/附着约束) + 填充(颜色/种子/多边形) + 顶点标注 → 纯 JSON 对象
+    // 导出: 曲线(含线型/附着约束) + 填充(颜色/种子/多边形) + 独立点(标注) → 纯 JSON 对象
     function serialize() {
         return {
             app: 'compass-straightedge',
-            version: 1,
+            version: 2,
             curves: JSON.parse(JSON.stringify(curves)),
             fills: JSON.parse(JSON.stringify(fills)),
-            vertexLabels: JSON.parse(JSON.stringify(vertexLabels))
+            points: JSON.parse(JSON.stringify(points))
         };
     }
 
     // 导入: 覆盖当前全部图形数据。结构非法 → 返回 false 且不改动现有内容。
-    // nextId 按导入数据中的最大 id 重建，避免后续新建曲线 id 冲突。
+    // 兼容 v1 (vertexLabels 坐标键) 与 v2 (points 实体)；nextId 按最大 id 重建，避免后续新建冲突。
     function deserialize(data) {
-        if (!data || data.app !== 'compass-straightedge' || data.version !== 1) return false;
+        if (!data || data.app !== 'compass-straightedge') return false;
+        if (data.version !== 1 && data.version !== 2) return false;
         if (!Array.isArray(data.curves) || !Array.isArray(data.fills || [])) return false;
         let next;
         try {
             next = JSON.parse(JSON.stringify({
                 curves: data.curves,
                 fills: data.fills || [],
-                vertexLabels: data.vertexLabels || {}
+                points: data.version === 2 ? (data.points || []) : [],
+                legacyLabels: data.version === 1 ? (data.vertexLabels || {}) : {}
             }));
         } catch (err) { return false; }
-        const maxId = next.curves.concat(next.fills)
+        // v1 迁移: vertexLabels map ("xE6,yE6" → 名称) → 独立点实体
+        const EPS_VL = 1e-6;
+        Object.keys(next.legacyLabels).forEach(k => {
+            const parts = k.split(',');
+            next.points.push({
+                id: 0,   // 占位，下方统一重编
+                x: Number(parts[0]) * EPS_VL,
+                y: Number(parts[1]) * EPS_VL,
+                name: next.legacyLabels[k]
+            });
+        });
+        const maxId = next.curves.concat(next.fills, next.points)
             .reduce((m, o) => Math.max(m, (o && o.id) || 0), 0);
+        next.points.forEach((p, i) => { p.id = maxId + 1 + i; });
         curves = next.curves;
         fills = next.fills;
-        vertexLabels = next.vertexLabels;
-        nextId = maxId + 1;
+        points = next.points;
+        nextId = maxId + 1 + next.points.length;
         return true;
     }
 
@@ -309,7 +322,7 @@ const Store = (() => {
         addCurve, makeLineCurve, makeCircleCurve, removeCurve, curveById, splitCurve,
         addFill, refillFills,
         clear, isEmpty, getCurves, getFills, setFills,
-        vertexKey, setVertexLabel, getVertexLabel, getVertexLabels,
+        getPoints, addPoint, removePoint,
         serialize, deserialize
     });
 })();

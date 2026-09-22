@@ -44,7 +44,7 @@ const Renderer = (() => {
         drawCurves();
         drawErase(state);
         drawIntersectionMarkers();
-        drawVertexLabels(state);
+        drawPoints(state);
         drawPreview(state);
         drawSnapHighlight(state);
         drawVertexHover(state);
@@ -293,44 +293,32 @@ const Renderer = (() => {
         ctx.restore();
     }
 
-    // ---------- 顶点命名标签 ----------
-    // 收集所有"节点"(端点+交点+圆心)，按 EPS_NODE 去重后绘制 Store 中已命名的标签
-    function drawVertexLabels(state) {
-        if (currentState.hidePoints) return;   // 隐藏点开关: 标签文字一并隐藏
-        const labels = Store.getVertexLabels();
-        if (!labels || !Object.keys(labels).length) return;
+    // ---------- 独立点实体 (已命名顶点) 与标注 ----------
+    // 点是独立对象: 即使来源曲线已被删除，点标记与标注文字仍然保留。
+    // 隐藏点开关同时隐藏点标记与标注文字。
+    function drawPoints(state) {
+        if (currentState.hidePoints) return;
+        const pts = Store.getPoints();
+        if (!pts.length) return;
         const theme = Config.THEME[(currentState && currentState.theme) || 'default'];
-        const curves = Store.getCurves();
-        const EPS = 1e-6;
-        const seen = [];   // { x, y, key }
-        const keyOf = (x, y) => Math.round(x / EPS) + ',' + Math.round(y / EPS);
-        const pushIfNew = (x, y) => {
-            const k = keyOf(x, y);
-            if (seen.some(s => s.key === k)) return;
-            seen.push({ x: x, y: y, key: k });
-        };
-        curves.forEach(c => {
-            if (c.type === 'line') {
-                pushIfNew(c.p0.x + c.dir.x * c.tMin, c.p0.y + c.dir.y * c.tMin);
-                pushIfNew(c.p0.x + c.dir.x * c.tMax, c.p0.y + c.dir.y * c.tMax);
-            } else {
-                pushIfNew(c.cx, c.cy);
-            }
+
+        // 点标记 (与线段端点同款样式)
+        ctx.fillStyle = theme.lineEndpoint;
+        pts.forEach(p => {
+            const sp = View.worldToScreen(p.x, p.y);
+            ctx.beginPath();
+            ctx.arc(sp.x, sp.y, 3.5, 0, 2 * Math.PI);
+            ctx.fill();
         });
-        for (let i = 0; i < curves.length; i++) {
-            for (let j = i + 1; j < curves.length; j++) {
-                Geometry.curveIntersection(curves[i], curves[j]).forEach(p => pushIfNew(p.x, p.y));
-            }
-        }
+
+        // 标注文字
         ctx.save();
         ctx.font = '600 12px system-ui, "Segoe UI", sans-serif';
         ctx.textBaseline = 'middle';
-        seen.forEach(n => {
-            const mapKey = keyOf(n.x, n.y);
-            const name = labels[mapKey];
-            if (!name) return;
-            const sp = View.worldToScreen(n.x, n.y);
-            const w = ctx.measureText(name).width;
+        pts.forEach(p => {
+            if (!p.name) return;
+            const sp = View.worldToScreen(p.x, p.y);
+            const w = ctx.measureText(p.name).width;
             ctx.fillStyle = theme.vertexLabelBg;
             const padX = 5, h = 18;
             const rx = sp.x + 8, ry = sp.y - h / 2, rw = w + padX * 2;
@@ -339,7 +327,7 @@ const Renderer = (() => {
             else ctx.rect(rx, ry, rw, h);
             ctx.fill();
             ctx.fillStyle = theme.vertexLabel;
-            ctx.fillText(name, rx + padX, sp.y);
+            ctx.fillText(p.name, rx + padX, sp.y);
         });
         ctx.restore();
     }

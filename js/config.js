@@ -34,7 +34,7 @@ const Config = Object.freeze({
     TEXT: Object.freeze({
         statusCompass: '圆规: 点击圆心 → 拖动定半径',
         statusRuler: '直尺: 点击起点 → 点击终点',
-        statusEraser: '橡皮: 单击/拖动擦除交点或端点之间的整段',
+        statusEraser: '橡皮: 拖动擦除线段 / 点击标注点删除该点',
         statusFill: '填充: 点击封闭区域填色 · 色板可换颜色',
         fillFail: '未找到封闭区域，无法填充',
         clearConfirm: '确定要清空画布？此操作可撤销',
@@ -94,6 +94,7 @@ const Config = Object.freeze({
         eraserRing: 'rgba(220, 60, 60, 0.9)',        // 橡皮光圈
         snap: Object.freeze({
             intersection: { color: '#f97316', fill: 'rgba(249, 115, 22, 0.3)' },
+            point:        { color: '#16a34a', fill: 'rgba(22, 163, 74, 0.3)' },
             endpoint:     { color: '#16a34a', fill: 'rgba(22, 163, 74, 0.3)' },
             center:       { color: '#b91c1c', fill: 'rgba(185, 28, 28, 0.3)' },
             circle:       { color: '#7c3aed', fill: 'rgba(124, 58, 237, 0.3)' },
@@ -108,6 +109,7 @@ const Config = Object.freeze({
     PRIORITY: Object.freeze({
         intersection: 100,
         axis: 90,
+        point: 85,      // 独立点实体 (已命名顶点)
         endpoint: 80,
         center: 80,
         circle: 30,

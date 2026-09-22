@@ -30,6 +30,11 @@ const Snap = (() => {
             }
         }
 
+        // 独立点实体 (已命名顶点) — 优先级高于普通端点/圆心
+        Store.getPoints().forEach(p => {
+            candidates.push({ x: p.x, y: p.y, type: 'point', label: '点', priority: Config.PRIORITY.point });
+        });
+
         // 端点 / 圆心
         curves.forEach(c => {
             if (c.type === 'line') {
