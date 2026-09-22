@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+    <!-- CSC尺规作图 LOGO —— 参考共济会「圆规+角尺」徽记:
+         顶部张开的圆规 (蓝图蓝) 与底部 90° 角尺 (琥珀黄) 交叠,
+         交点处角尺压在圆规腿上形成编织感, 中央衬几何之 G -->
+    <rect width="64" height="64" rx="13" fill="#10141d"/>
+    <rect x="1.5" y="1.5" width="61" height="61" rx="11.5" fill="none" stroke="#2a3448" stroke-width="1.5"/>
+
+    <!-- 角尺: 直角顶点在下, 两臂斜向上 -->
+    <path d="M13 34 L32 53 L51 34" fill="none" stroke="#eab308" stroke-width="5"
+          stroke-linecap="round" stroke-linejoin="round"/>
+
+    <!-- 圆规: 顶铰在上, 两腿张开 -->
+    <path d="M32 9 L17 50 M32 9 L47 50" fill="none" stroke="#7a9eff" stroke-width="5"
+          stroke-linecap="round"/>
+    <circle cx="32" cy="8.5" r="3.6" fill="#7a9eff"/>
+
+    <!-- 编织: 左右交叉处重描角尺短段, 让角尺压在圆规腿上 -->
+    <path d="M16.5 38.5 L23.5 45.5 M40.5 45.5 L47.5 38.5" fill="none" stroke="#eab308"
+          stroke-width="5" stroke-linecap="round"/>
+
+    <!-- 中心 G (Geometry) -->
+    <text x="32" y="40.5" font-family="Georgia, 'Times New Roman', serif" font-size="15"
+          font-weight="bold" text-anchor="middle" fill="#f3f4f6">G</text>
+</svg>

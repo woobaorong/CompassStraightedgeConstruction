@@ -512,3 +512,33 @@ body.immersive .immersive-exit:hover { background: rgba(60, 60, 60, 0.85); }
     color: #7a9eff;
     font-weight: 500;
 }
+
+/* ---------- 自定义悬浮提示 (悬停 2s 后显示) ---------- */
+.custom-tooltip {
+    position: fixed;
+    z-index: 1000;
+    max-width: 280px;
+    background: rgba(20, 24, 33, 0.96);
+    color: #f3f4f6;
+    font-size: 12px;
+    line-height: 1.5;
+    padding: 7px 11px;
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(2px);
+    transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.custom-tooltip.show {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* ---------- 品牌徽标 (左上角, 参考共济会圆规+角尺) ---------- */
+.brand-mark {
+    display: inline-flex;
+    align-items: center;
+    margin-right: 2px;
+}
