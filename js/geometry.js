@@ -101,36 +101,49 @@ const Geometry = (() => {
     }
 
     // 直线(无限，dir 为单位向量) 与 圆 交点参数 (t 为线参数)
-    function lineCircleParams(l, c) {
+    // tol > 0 时启用切线容差: 线与圆间距/穿透 ≤ tol (世界单位) 视为相切, 返回切点
+    function lineCircleParams(l, c, tol) {
         const fx = l.p0.x - c.cx, fy = l.p0.y - c.cy;
         const b = 2 * (fx * l.dir.x + fy * l.dir.y);
         const cc = fx * fx + fy * fy - c.r * c.r;
         const disc = b * b - 4 * cc;
-        if (disc < 0) return [];
+        if (disc < 0) {
+            // 近切线: |disc| = 4(dmin+r)·gap ≈ 8r·gap, gap = dmin - r
+            if (tol > 0 && -disc <= 8 * c.r * tol) return [-b / 2];
+            return [];
+        }
         const sq = Math.sqrt(disc);
+        // 浅穿透: 两交点相距 ≤ tol → 合并为切点, 避免产生同向重复边
+        if (tol > 0 && sq <= tol) return [-b / 2];
         return [(-b - sq) / 2, (-b + sq) / 2];
     }
 
     // 圆与圆交点坐标 (0~2 个；相切 1 个)
-    function circleCirclePoints(c1, c2) {
+    // tol > 0 时启用切线容差: 圆心距与外切/内切距之差 ≤ tol 视为相切, 返回切点
+    function circleCirclePoints(c1, c2, tol) {
         const d = Math.hypot(c2.cx - c1.cx, c2.cy - c1.cy);
-        if (d > c1.r + c2.r + EPS || d < Math.abs(c1.r - c2.r) - EPS || d < EPS) return [];
-        const a = (c1.r * c1.r - c2.r * c2.r + d * d) / (2 * d);
+        if (d < EPS) return [];
+        const s = c1.r + c2.r, dif = Math.abs(c1.r - c2.r);
+        if (tol > 0) {
+            if (d > s + tol || d < dif - tol) return [];
+        } else if (d > s + EPS || d < dif - EPS) return [];
+        const dd = Math.min(Math.max(d, dif), s);   // 近切线时夹到相切距
+        const a = (c1.r * c1.r - c2.r * c2.r + dd * dd) / (2 * dd);
         const hSq = c1.r * c1.r - a * a;
         if (hSq < -EPS) return [];
         const h = Math.sqrt(Math.max(0, hSq));
-        const mx = c1.cx + a * (c2.cx - c1.cx) / d;
-        const my = c1.cy + a * (c2.cy - c1.cy) / d;
+        const mx = c1.cx + a * (c2.cx - c1.cx) / dd;
+        const my = c1.cy + a * (c2.cy - c1.cy) / dd;
         if (h < EPS) return [{ x: mx, y: my }];
-        const rx = -(c2.cy - c1.cy) * h / d;
-        const ry = (c2.cx - c1.cx) * h / d;
+        const rx = -(c2.cy - c1.cy) * h / dd;
+        const ry = (c2.cx - c1.cx) * h / dd;
         return [
             { x: mx + rx, y: my + ry },
             { x: mx - rx, y: my - ry }
         ];
     }
 
-    function curveIntersection(c1, c2) {
+    function curveIntersection(c1, c2, tol) {
         const out = [];
         if (c1.type === 'line' && c2.type === 'line') {
             const r = lineLineParams(c1, c2);
@@ -140,7 +153,7 @@ const Geometry = (() => {
                 out.push({ x: p.x, y: p.y, t1: r.t1, t2: r.t2 });
             }
         } else if (c1.type === 'circle' && c2.type === 'circle') {
-            circleCirclePoints(c1, c2).forEach(p => {
+            circleCirclePoints(c1, c2, tol || 0).forEach(p => {
                 const t1 = normalizeCircleParam(c1, Math.atan2(p.y - c1.cy, p.x - c1.cx));
                 const t2 = normalizeCircleParam(c2, Math.atan2(p.y - c2.cy, p.x - c2.cx));
                 if (inDomain(c1, t1) && inDomain(c2, t2)) {
@@ -150,7 +163,7 @@ const Geometry = (() => {
         } else {
             const l = c1.type === 'line' ? c1 : c2;
             const ci = c1.type === 'circle' ? c1 : c2;
-            lineCircleParams(l, ci).forEach(tl => {
+            lineCircleParams(l, ci, tol || 0).forEach(tl => {
                 const p = curvePointAt(l, tl);
                 const tc = normalizeCircleParam(ci, Math.atan2(p.y - ci.cy, p.x - ci.cx));
                 if (inDomain(l, tl) && inDomain(ci, tc)) {
@@ -247,34 +260,63 @@ const Geometry = (() => {
     function extractFace(curves, px, py) {
         const N = curves.length;
         if (!N) return null;
-        const EPS_NODE = 1e-6;   // 节点合并容差 (世界单位)
         const EPS_T = 1e-7;      // 参数去重容差
+        // 密封容差: 端点「视觉上碰到」另一条曲线 (屏幕 ~3px) 即视为共点切割。
+        // 仅用 1e-6 的精确容差时, 分割线端点差 1~3px (目测/网格吸附偏移) 就会留下
+        // 亚像素缺口, 两个区块漏通成一个面 → 填充合在一起。
+        const sc = (typeof View !== 'undefined' && View.getState) ? View.getState().scale : 1;
+        const TOL = 3 / sc;
 
-        // 1. 每条曲线的切割参数：两两求交 + 端点共点 (共线相接等求交漏掉的情形)
+        // 1. 每条曲线的切割参数：两两求交 (带切线容差) + 端点密封
         const cuts = [];
         for (let i = 0; i < N; i++) cuts.push([]);
         for (let i = 0; i < N; i++) {
             for (let j = i + 1; j < N; j++) {
-                curveIntersection(curves[i], curves[j]).forEach(p => {
+                curveIntersection(curves[i], curves[j], TOL).forEach(p => {
                     cuts[i].push(p.t1);
                     cuts[j].push(p.t2);
                 });
             }
         }
+        // 端点密封两遍走:
+        //   第一遍 端点↔端点 成对密封 (切割点只落在两端, 不产生内部切割);
+        //   第二遍 未密封端点↔曲线内部最近点。
+        // 一个端点只密封一次: 若同一端点既贴对方端点又贴对方内部, 两处切割会
+        // 打出悬挂节点, 把面绕行搅成自交环 (填充出现碎面/漏面)。
+        const endParams = c => c.type === 'line'
+            ? (c.kind === 'segment' || c.kind === 'piece' ? [c.tMin, c.tMax]
+               : c.kind === 'ray' ? [c.tMin] : [])
+            : (!isFullCircle(c) ? [c.a0, c.a1] : []);
+        const sealed = new Set();
         for (let i = 0; i < N; i++) {
-            const c = curves[i];
-            const ends = c.type === 'line'
-                ? (c.kind === 'segment' || c.kind === 'piece' ? [c.tMin, c.tMax]
-                   : c.kind === 'ray' ? [c.tMin] : [])
-                : (!isFullCircle(c) ? [c.a0, c.a1] : []);
-            ends.forEach(t => {
-                const p = curvePointAt(c, t);
+            endParams(curves[i]).forEach(t => {
+                const p = curvePointAt(curves[i], t);
+                for (let j = 0; j < N; j++) {
+                    if (j === i) continue;
+                    const ends2 = endParams(curves[j]);
+                    for (let e = 0; e < ends2.length; e++) {
+                        const q = curvePointAt(curves[j], ends2[e]);
+                        if (Math.hypot(q.x - p.x, q.y - p.y) <= TOL) {
+                            cuts[i].push(t);
+                            cuts[j].push(ends2[e]);
+                            sealed.add(i + ':' + t);
+                            return;
+                        }
+                    }
+                }
+            });
+        }
+        for (let i = 0; i < N; i++) {
+            endParams(curves[i]).forEach(t => {
+                if (sealed.has(i + ':' + t)) return;
+                const p = curvePointAt(curves[i], t);
                 for (let j = 0; j < N; j++) {
                     if (j === i) continue;
                     const cp = closestPointOnCurve(curves[j], p.x, p.y);
-                    if (Math.hypot(cp.x - p.x, cp.y - p.y) <= EPS_NODE) {
+                    if (Math.hypot(cp.x - p.x, cp.y - p.y) <= TOL) {
                         cuts[i].push(t);
                         cuts[j].push(cp.t);
+                        break;
                     }
                 }
             });
@@ -312,7 +354,7 @@ const Geometry = (() => {
         const nodes = [];
         const nodeAt = (p) => {
             for (let k = 0; k < nodes.length; k++) {
-                if (Math.hypot(nodes[k].x - p.x, nodes[k].y - p.y) <= EPS_NODE) return k;
+                if (Math.hypot(nodes[k].x - p.x, nodes[k].y - p.y) <= TOL) return k;
             }
             nodes.push({ x: p.x, y: p.y });
             return nodes.length - 1;
@@ -321,34 +363,59 @@ const Geometry = (() => {
             if (c.type === 'line') return { x: c.dir.x * sign, y: c.dir.y * sign };
             return { x: -Math.sin(t) * sign, y: Math.cos(t) * sign };
         };
+        // 出边方向角的一阶变化率 (有符号曲率 dθ/ds): 直线 0, 圆 ±1/r。
+        // 弧与直线/另一弧在节点处相切时两条出边的方向角完全相同, 只按方向角排序
+        // 会并列, 顺序一旦颠倒, 面绕行就把两个相邻面并成一个零面积退化环 →
+        // 填充失败。用曲率作无穷小次序修正, 等价于按「离开节点极小弧长后的方向角」排序。
+        const travelKappa = (c, sign) => c.type === 'line' ? 0 : sign / c.r;
         const halfEdges = [];
         segs.forEach(s => {
             const nF = nodeAt(curvePointAt(s.c, s.tFrom));
             const nT = nodeAt(curvePointAt(s.c, s.tTo));
-            const hF = { seg: s, fwd: true, from: nF, to: nT, dir: travelDir(s.c, s.tFrom, 1), twin: null };
-            const hT = { seg: s, fwd: false, from: nT, to: nF, dir: travelDir(s.c, s.tTo, -1), twin: null };
+            const hF = { seg: s, fwd: true, from: nF, to: nT, dir: travelDir(s.c, s.tFrom, 1), kappa: travelKappa(s.c, 1), twin: null };
+            const hT = { seg: s, fwd: false, from: nT, to: nF, dir: travelDir(s.c, s.tTo, -1), kappa: travelKappa(s.c, -1), twin: null };
             hF.twin = hT;
             hT.twin = hF;
             halfEdges.push(hF, hT);
         });
 
-        // 4. 每个节点的出边按方向角 [0,2π) 排序
+        // 3.5 剔除悬挂边: 一端度数为 1 的边 (悬空的线头) 不围任何面。
+        // 且切线场景中悬挂边的半边与主边在切点方向完全共线, 会破坏面绕行的
+        // 角度排序 (产生自交环 → 碎面/漏面)。
+        const reps = halfEdges.filter(h => h.fwd);
+        let live = reps;
+        for (;;) {
+            const deg = new Map();
+            live.forEach(h => {
+                deg.set(h.from, (deg.get(h.from) || 0) + 1);
+                deg.set(h.to, (deg.get(h.to) || 0) + 1);
+            });
+            const next = live.filter(h => deg.get(h.from) > 1 && deg.get(h.to) > 1);
+            if (next.length === live.length) break;
+            live = next;
+        }
+        const liveSet = new Set(live);
+        const edges = halfEdges.filter(h => liveSet.has(h.fwd ? h : h.twin));
+
+        // 4. 每个节点的出边按方向角 [0,2π) 排序 (并列时用曲率做无穷小次序修正)
         const normAngle = (d) => {
             const a = Math.atan2(d.y, d.x);
             return a < 0 ? a + Math.PI * 2 : a;
         };
+        const KAPPA_EPS = 1e-9;   // 曲率修正权重: 远小于任何真实角度差, 只在并列时起作用
+        const sortKey = (h) => normAngle(h.dir) + KAPPA_EPS * (h.kappa / (1 + Math.abs(h.kappa)));
         const outs = nodes.map(() => []);
-        halfEdges.forEach(h => outs[h.from].push(h));
-        outs.forEach(list => list.sort((a, b) => normAngle(a.dir) - normAngle(b.dir)));
+        edges.forEach(h => outs[h.from].push(h));
+        outs.forEach(list => list.sort((a, b) => sortKey(a) - sortKey(b)));
 
         // 5. 面绕行：next = 角度序中「来向 (twin)」的前一条出边
         const visited = new Set();
         const cycles = [];
-        halfEdges.forEach(start => {
+        edges.forEach(start => {
             if (visited.has(start)) return;
             const cycle = [];
             let cur = start, closed = false;
-            for (let step = 0; step <= halfEdges.length; step++) {
+            for (let step = 0; step <= edges.length; step++) {
                 visited.add(cur);
                 cycle.push(cur);
                 const list = outs[cur.to];
