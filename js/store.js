@@ -44,11 +44,12 @@ const Store = (() => {
         }));
     }
 
-    // 圆型曲线 (完整圆)；centerAttach 为圆心附着约束
-    function makeCircleCurve(cx, cy, r, centerAttach) {
+    // 圆型曲线；a0/a1 缺省 = 完整圆，传入角度区间即为弧
+    function makeCircleCurve(cx, cy, r, centerAttach, a0, a1) {
         return addCurve({
             type: 'circle', cx: cx, cy: cy, r: r,
-            a0: 0, a1: Math.PI * 2,
+            a0: (a0 === undefined) ? 0 : a0,
+            a1: (a1 === undefined) ? Math.PI * 2 : a1,
             centerAttach: centerAttach || null
         });
     }

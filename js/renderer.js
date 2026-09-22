@@ -167,9 +167,9 @@ const Renderer = (() => {
                 ctx.stroke();
             }
 
-            // 圆心 — 隐藏点开关开启时跳过
+            // 圆心 — 红色与其他点统一 — 隐藏点开关开启时跳过
             if (!currentState.hidePoints) {
-                ctx.fillStyle = theme.circle;
+                ctx.fillStyle = theme.lineEndpoint;
                 ctx.beginPath();
                 ctx.arc(cScreen.x, cScreen.y, 4, 0, 2 * Math.PI);
                 ctx.fill();
@@ -346,12 +346,13 @@ const Renderer = (() => {
             const view = View.getState();
             const pcScreen = View.worldToScreen(pc.cx, pc.cy);
             const prScreen = pc.r * view.scale;
+            // 整圆 a0..a1 = 0..2π；短弧为固定 15° 的 [a0,a1] 弧段
 
             ctx.strokeStyle = Config.COLORS.preview;
             ctx.lineWidth = 2;
             ctx.setLineDash([8, 6]);
             ctx.beginPath();
-            ctx.arc(pcScreen.x, pcScreen.y, prScreen, 0, 2 * Math.PI);
+            ctx.arc(pcScreen.x, pcScreen.y, prScreen, pc.a0, pc.a1);
             ctx.stroke();
 
             // 圆心到鼠标的辅助线

@@ -30,9 +30,13 @@ const Config = Object.freeze({
     // 历史记录上限
     MAX_HISTORY: 50,
 
+    // 短弧模式的固定圆心角
+    ARC_SPAN: Math.PI * 15 / 180,
+
     // 状态提示文案
     TEXT: Object.freeze({
-        statusCompass: '圆规: 点击圆心 → 拖动定半径',
+        statusCompass: '圆规: 点击圆心 → 点击定半径',
+        statusCompassArc: '圆规·短弧: 点击圆心 → 点击定弧 (固定15°)',
         statusRuler: '直尺: 点击起点 → 点击终点',
         statusEraser: '橡皮: 拖动擦除线段 / 点击标注点删除该点',
         statusFill: '填充: 点击封闭区域填色 · 色板可换颜色',
@@ -49,10 +53,10 @@ const Config = Object.freeze({
             grid: '#f0f0f0',
             axis: '#e0e0e0',
             line: '#000000',
-            lineEndpoint: '#16a34a',
+            lineEndpoint: '#dc2626',
             circle: '#000000',
             circleRadiusLine: 'rgba(0, 0, 0, 0.2)',
-            intersection: 'rgba(249, 115, 22, 0.6)',
+            intersection: 'rgba(220, 38, 38, 0.7)',
             vertexLabel: '#1f2937',
             vertexLabelBg: 'rgba(255,255,255,0.85)'
         },

@@ -33,11 +33,14 @@
     const fullBtn = document.getElementById('fullBtn');
     const rulerKindGroup = document.getElementById('rulerKindGroup');
     const kindBtns = rulerKindGroup ? Array.from(rulerKindGroup.querySelectorAll('.kind-btn')) : [];
+    const compassKindGroup = document.getElementById('compassKindGroup');
+    const ckindBtns = compassKindGroup ? Array.from(compassKindGroup.querySelectorAll('.kind-btn')) : [];
 
     // ---------- 应用状态 ----------
     const state = {
         currentTool: 'ruler',       // 默认线段
         rulerKind: 'segment',       // 直尺模式: segment | ray | line
+        compassKind: 'circle',      // 圆规模式: circle 整圆 | arc 短弧(固定15°)
         lineStyle: 'solid',         // 实线 / 虚线
         theme: 'blueprint',        // 默认蓝图配色
         phase: 'idle',              // idle | started
@@ -220,7 +223,11 @@
         if (state.currentTool === 'eraser') { updateStatus(Config.TEXT.statusEraser); return; }
         if (state.currentTool === 'fill') { updateStatus(Config.TEXT.statusFill); return; }
         if (state.currentTool === 'vertex') { updateStatus('顶点: 点击节点命名 / 已命名点可改名或留空删除'); return; }
-        updateStatus(state.currentTool === 'compass' ? Config.TEXT.statusCompass : Config.TEXT.statusRuler);
+        if (state.currentTool === 'compass') {
+            updateStatus(state.compassKind === 'arc' ? Config.TEXT.statusCompassArc : Config.TEXT.statusCompass);
+            return;
+        }
+        updateStatus(Config.TEXT.statusRuler);
     }
 
     function updateZoomIndicator() {
@@ -285,11 +292,13 @@
         toolEraser.classList.toggle('active', tool === 'eraser');
         toolFill.classList.toggle('active', tool === 'fill');
         if (toolVertex) toolVertex.classList.toggle('active', tool === 'vertex');
-        // 右侧堆叠面板 (工具栏下方): 线段射线直线(直尺) / 填充色板(填充) / 实线虚线(直尺·圆规) / 连续(直尺+线段)
+        // 右侧堆叠面板 (工具栏下方): 线段射线直线(直尺) / 整圆短弧(圆规) / 填充色板(填充) / 实线虚线(直尺·圆规)
         const showKind = (tool === 'ruler');
+        const showCKind = (tool === 'compass');
         const showLine = (tool === 'compass' || tool === 'ruler');
         const showFill = (tool === 'fill');
         rulerKindGroup.style.display = showKind ? 'flex' : 'none';
+        if (compassKindGroup) compassKindGroup.style.display = showCKind ? 'flex' : 'none';
         if (rulerKindPanel) rulerKindPanel.style.display = (showKind || showLine || showFill) ? 'flex' : 'none';
         if (lineStyleCard) lineStyleCard.style.display = showLine ? '' : 'none';
         if (fillCard) fillCard.style.display = showFill ? '' : 'none';
@@ -333,6 +342,15 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
         state.rulerKind = kind;
         kindBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.kind === kind));
         if (state.phase === 'started') updatePreview();
+        render();
+    }
+
+    // 切换圆规模式 (整圆 / 短弧)
+    function setCompassKind(kind) {
+        state.compassKind = kind;
+        ckindBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.ckind === kind));
+        if (state.phase === 'started') cancelDrawing();
+        updateStatusForTool();
         render();
     }
 
@@ -426,7 +444,14 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
 
         if (state.currentTool === 'compass') {
             const r = Math.hypot(target.x - sx, target.y - sy);
-            state.previewCurve = r < 1 ? null : { type: 'circle', cx: sx, cy: sy, r: r, a0: 0, a1: Math.PI * 2, lineStyle: state.lineStyle };
+            if (r < 1) { state.previewCurve = null; return; }
+            if (state.compassKind === 'arc') {
+                // 短弧预览: 以圆心指向鼠标的方向为中心, 固定 15° (顺/逆各 7.5°)
+                const mid = Math.atan2(target.y - sy, target.x - sx);
+                state.previewCurve = { type: 'circle', cx: sx, cy: sy, r: r, a0: mid - Config.ARC_SPAN / 2, a1: mid + Config.ARC_SPAN / 2, lineStyle: state.lineStyle };
+            } else {
+                state.previewCurve = { type: 'circle', cx: sx, cy: sy, r: r, a0: 0, a1: Math.PI * 2, lineStyle: state.lineStyle };
+            }
         } else {
             const dist = Math.hypot(target.x - sx, target.y - sy);
             state.previewCurve = dist < 1 ? null : Object.assign(Geometry.makeLineCurveData(state.startPoint, target, state.rulerKind), { lineStyle: state.lineStyle });
@@ -554,7 +579,11 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
                 updateStatus(`起点 → 选择终点`);
             }
         } else if (state.phase === 'started' && state.startPoint) {
-            finishDrawing(useX, useY);
+            if (state.currentTool === 'compass' && state.compassKind === 'arc') {
+                finishArc(useX, useY);   // 短弧: 直接落一条固定 15° 的弧
+            } else {
+                finishDrawing(useX, useY);
+            }
         }
 
         render();
@@ -593,6 +622,25 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
             cancelDrawing();
             updateStatusForTool();
         }
+    }
+
+    // 短弧: 第二次点击直接落一条固定 15° 的弧 — 以圆心指向点击点的方向为中心, 顺/逆时针各 7.5°
+    function finishArc(useX, useY) {
+        const scale = View.getState().scale;
+        const sx = state.startPoint.x, sy = state.startPoint.y;
+        const r = Math.hypot(useX - sx, useY - sy);
+        if (r * scale < Config.MIN_SHAPE_SCREEN) {
+            cancelDrawing();
+            updateStatusForTool();
+            return;
+        }
+        const mid = Math.atan2(useY - sy, useX - sx);
+        Store.saveHistory();
+        const created = Store.makeCircleCurve(sx, sy, r, null, mid - Config.ARC_SPAN / 2, mid + Config.ARC_SPAN / 2);
+        if (created) created.lineStyle = state.lineStyle;
+        Store.refillFills(Geometry.extractFace, [created]);
+        cancelDrawing();
+        updateStatusForTool();
     }
 
     function onMouseMove(e) {
@@ -712,6 +760,7 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
     toolFill.addEventListener('click', () => setTool('fill'));
     if (toolVertex) toolVertex.addEventListener('click', () => setTool('vertex'));
     kindBtns.forEach(btn => btn.addEventListener('click', () => setRulerKind(btn.dataset.kind)));
+    ckindBtns.forEach(btn => btn.addEventListener('click', () => setCompassKind(btn.dataset.ckind)));
     styleBtns.forEach(btn => btn.addEventListener('click', () => setLineStyle(btn.dataset.style)));
     swatchBtns.forEach(btn => btn.addEventListener('click', () => setFillColor(btn.dataset.color, btn)));
     customColor.addEventListener('input', (e) => setFillColor(e.target.value, null));
