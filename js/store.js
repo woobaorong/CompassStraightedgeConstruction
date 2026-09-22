@@ -155,6 +155,30 @@ const Store = (() => {
         return curves.find(c => c.id === id) || null;
     }
 
+    // 在参数 t 处把曲线一分为二 (点工具: 点落在线/圆上时分割该曲线)。
+    // 两段碎片各自继承原曲线对应端的 attach 约束；t 距任一端的世界长度
+    // 不足 MIN_PIECE 时视为落在端点附近，不分割返回 null。成功返回新曲线数组。
+    function splitCurveAt(curveId, t) {
+        const c = curveById(curveId);
+        if (!c) return null;
+        const MIN_PIECE = 0.01;   // 世界长度阈值
+        const dom = c.type === 'line' ? { from: c.tMin, to: c.tMax } : { from: c.a0, to: c.a1 };
+        const lenL = c.type === 'line' ? (t - dom.from) : (t - dom.from) * c.r;
+        const lenR = c.type === 'line' ? (dom.to - t) : (dom.to - t) * c.r;
+        if (lenL < MIN_PIECE || lenR < MIN_PIECE) return null;
+        const before = curves.length;
+        if (c.type === 'line') {
+            spawnLinePiece(c, dom.from, t);
+            spawnLinePiece(c, t, dom.to);
+        } else {
+            spawnArcPiece(c, dom.from, t);
+            spawnArcPiece(c, t, dom.to);
+        }
+        const created = curves.slice(before);
+        removeCurve(curveId);   // 碎片替换原曲线
+        return created;
+    }
+
     // ---------- 填充区域 (P7 油漆桶) ----------
     // fill = { id, color, seed:{x,y}, poly:[{x,y}...] }  poly 为最近一次提取的封闭面
 
@@ -320,7 +344,7 @@ const Store = (() => {
 
     return Object.freeze({
         saveHistory, undo,
-        addCurve, makeLineCurve, makeCircleCurve, removeCurve, curveById, splitCurve,
+        addCurve, makeLineCurve, makeCircleCurve, removeCurve, curveById, splitCurve, splitCurveAt,
         addFill, refillFills,
         clear, isEmpty, getCurves, getFills, setFills,
         getPoints, addPoint, removePoint,

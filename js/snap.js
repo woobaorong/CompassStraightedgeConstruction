@@ -46,18 +46,18 @@ const Snap = (() => {
             }
         });
 
-        // 动态: 圆周 (弧域内截断)
+        // 动态: 圆周 (弧域内截断)；携带 curveId/t 供点工具分割曲线
         curves.forEach(c => {
             if (c.type !== 'circle') return;
             const cp = Geometry.closestPointOnCurve(c, wx, wy);
-            candidates.push({ x: cp.x, y: cp.y, type: 'circle', label: Geometry.isFullCircle(c) ? '圆周' : '弧上', priority: Config.PRIORITY.circle });
+            candidates.push({ x: cp.x, y: cp.y, t: cp.t, curveId: c.id, type: 'circle', label: Geometry.isFullCircle(c) ? '圆周' : '弧上', priority: Config.PRIORITY.circle });
         });
 
-        // 动态: 线上
+        // 动态: 线上 (同样携带 curveId/t)
         curves.forEach(c => {
             if (c.type !== 'line') return;
             const cp = Geometry.closestPointOnCurve(c, wx, wy);
-            candidates.push({ x: cp.x, y: cp.y, type: 'line', label: '线上', priority: Config.PRIORITY.line });
+            candidates.push({ x: cp.x, y: cp.y, t: cp.t, curveId: c.id, type: 'line', label: '线上', priority: Config.PRIORITY.line });
         });
 
         return candidates;
@@ -67,7 +67,10 @@ const Snap = (() => {
     // 核心思路：axis 与 grid 链式组合 —— axis 把鼠标拉到轴线，grid 再把轴投影点吸到最近网格点。
     //   这样两者"同时起效"：鼠标方向接近水平/垂直时，自动吸附到「轴线上的最近网格点」。
     // drawCtx: { startPoint } 绘制中传入起点以启用水平/垂直吸附
-    function find(wx, wy, drawCtx) {
+    // opts: { preferCurveSnap } 点工具用 —— 曲线类候选 (端点/交点/线上/圆周等)
+    //        命中时优先于网格；无命中再回落到网格
+    function find(wx, wy, drawCtx, opts) {
+        const preferCurve = !!(opts && opts.preferCurveSnap);
         const mScreen = View.worldToScreen(wx, wy);
         const startPoint = drawCtx && drawCtx.startPoint;
 
@@ -134,13 +137,16 @@ const Snap = (() => {
                 priority: Config.PRIORITY.axis
             };
         }
+        let gridResult = null;
         if (gridActive) {
-            return { x: baseX, y: baseY, type: 'grid', label: '网格', priority: 50 };
+            gridResult = { x: baseX, y: baseY, type: 'grid', label: '网格', priority: 50 };
+            if (!preferCurve) return gridResult;   // 原行为：网格直接生效
+            // preferCurve: 先暂存网格结果，若下方有曲线类候选命中则让位
         }
 
         // ---------- 第四步：普通候选评分 ----------
         // 点线吸附关闭 → 端点/交点/圆心/线上/圆周一律不吸附，仅剩网格与横平竖直
-        if (!pointSnapEnabled) return null;
+        if (!pointSnapEnabled) return gridResult;
         const candidates = collectAllCandidates(wx, wy);
         let best = null, bestScore = Infinity;
         candidates.forEach(p => {
@@ -150,7 +156,8 @@ const Snap = (() => {
             const score = dScreen - p.priority * 0.15;
             if (score < bestScore) { bestScore = score; best = p; }
         });
-        return best;
+        if (best) return best;
+        return gridResult;   // preferCurve 且无曲线命中 → 回落网格
     }
 
     return Object.freeze({ setCircleSnapEnabled, setAxisSnapEnabled, setGridSnapEnabled, find, collectAllCandidates });

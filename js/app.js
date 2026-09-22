@@ -60,6 +60,7 @@
         snappedPoint: null,         // 世界坐标
         snappedType: null,
         snappedLabel: '',
+        snappedCurve: null,         // 线上/圆周吸附命中的曲线 { curveId, t } — 点工具据此分割曲线
         currentColor: Config.FILL_COLORS[0],   // 油漆桶当前颜色
         vertexHover: null,          // 顶点工具 hover 的节点 (世界坐标)
         hidePoints: false           // 隐藏点开关: 仅不显示点与标签，不影响吸附等逻辑
@@ -274,9 +275,12 @@
             state.snappedPoint = { x: snap.x, y: snap.y };
             state.snappedType = snap.type;
             state.snappedLabel = snap.label;
+            state.snappedCurve = (snap.curveId !== undefined && snap.t !== undefined)
+                ? { curveId: snap.curveId, t: snap.t } : null;
         } else {
             state.snappedPoint = null;
             state.snappedType = null;
+            state.snappedCurve = null;
         }
     }
 
@@ -603,7 +607,9 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
         }
 
         // 在当前位置重新检测吸附 (不依赖上次 mousemove 的旧值)
-        const snap = Snap.find(state.mouseWorld.x, state.mouseWorld.y, drawCtx());
+        // 点工具优先曲线类吸附 (线上/圆周等)，避免网格抢走导致点落不到线上
+        const snap = Snap.find(state.mouseWorld.x, state.mouseWorld.y, drawCtx(),
+            state.currentTool === 'point' ? { preferCurveSnap: true } : null);
         applySnap(snap);
         if (snap) showSnapIndicator(snap.type, snap.label);
         else hideSnapIndicator();
@@ -619,7 +625,16 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
             if (state.currentTool === 'point') {
                 Store.saveHistory();
                 Store.addPoint(useX, useY, '');
-                updateStatus(state.snappedPoint ? `已吸附${state.snappedLabel} → 放置点` : '已放置点');
+                let msg = state.snappedPoint ? `已吸附${state.snappedLabel} → 放置点` : '已放置点';
+                // 点落在曲线 (线上/圆周/弧上) → 该曲线被此点分割为两段
+                if (state.snappedCurve && (state.snappedType === 'line' || state.snappedType === 'circle')) {
+                    const created = Store.splitCurveAt(state.snappedCurve.curveId, state.snappedCurve.t);
+                    if (created) {
+                        Store.refillFills(Geometry.extractFace, created);
+                        msg = `已吸附${state.snappedLabel} → 放置点并分割曲线`;
+                    }
+                }
+                updateStatus(msg);
                 render();
                 return;
             }
