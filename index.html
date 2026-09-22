@@ -62,13 +62,14 @@
                 
                 <button id="toolMeasure" class="tool-btn" data-tool="measure" title="测距: 点击起点 → 点击终点，距离显示在下方中间。结果可锁定为圆规半径">
                     <span class="tool-ico">
+                        <!-- 倾斜分规: 两针脚落在测点上, 虚线 = 正在量的距离 -->
                         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                            <circle cx="12" cy="3.5" r="1.7"/>
-                            <path d="M10.9 5 5 20"/>
-                            <path d="M13.1 5 19 20"/>
-                            <path d="M7.5 13.5h9"/>
-                            <path d="m9.2 11.6-1.9 1.9 1.9 1.9"/>
-                            <path d="m14.8 11.6 1.9 1.9-1.9 1.9"/>
+                            <circle cx="7.2" cy="3.9" r="1.8"/>
+                            <path d="M6.3 5.4 4.6 19.2"/>
+                            <path d="M8.2 5.2 18.9 15.6"/>
+                            <path d="M4.6 19.2 18.9 15.6" stroke-dasharray="2.4 2.2"/>
+                            <circle cx="4.6" cy="19.2" r="1.5" fill="currentColor" stroke="none"/>
+                            <circle cx="18.9" cy="15.6" r="1.5" fill="currentColor" stroke="none"/>
                         </svg>
                     </span>
                     <span class="tool-label">测距</span>
