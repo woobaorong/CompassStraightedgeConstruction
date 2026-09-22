@@ -379,6 +379,33 @@ const Geometry = (() => {
             halfEdges.push(hF, hT);
         });
 
+        // 3.6 近邻节点桥接 (保证闭合): 两个节点「无限接近」时 (距离 ≤ BRIDGE_TOL)
+        // 自动补一条连接两点的短线, 把亚像素缺口强制缝合。
+        // 相切的弧线在切点处, 弧端点与直线的切点常因容差/浮点误差落成两个节点,
+        // 位置几乎重合却不在同一个节点上 → 面绕行时缺口处兜不回来, 填充泄漏或失败。
+        // 桥接不移动任何原有几何, 只新增一条视觉上零长度的缝合边。
+        const BRIDGE_TOL = TOL * 2;
+        for (let a = 0; a < nodes.length; a++) {
+            for (let b = a + 1; b < nodes.length; b++) {
+                const dx = nodes[b].x - nodes[a].x, dy = nodes[b].y - nodes[a].y;
+                const d = Math.hypot(dx, dy);
+                if (d <= 1e-12 || d > BRIDGE_TOL) continue;
+                const ux = dx / d, uy = dy / d;
+                const c = {
+                    type: 'line', kind: 'seal',
+                    p0: { x: nodes[a].x, y: nodes[a].y },
+                    dir: { x: ux, y: uy },
+                    tMin: 0, tMax: d
+                };
+                const s = { c: c, tFrom: 0, tTo: d };
+                const hF = { seg: s, fwd: true, from: a, to: b, dir: { x: ux, y: uy }, kappa: 0, twin: null };
+                const hT = { seg: s, fwd: false, from: b, to: a, dir: { x: -ux, y: -uy }, kappa: 0, twin: null };
+                hF.twin = hT;
+                hT.twin = hF;
+                halfEdges.push(hF, hT);
+            }
+        }
+
         // 3.5 剔除悬挂边: 一端度数为 1 的边 (悬空的线头) 不围任何面。
         // 且切线场景中悬挂边的半边与主边在切点方向完全共线, 会破坏面绕行的
         // 角度排序 (产生自交环 → 碎面/漏面)。
