@@ -30,13 +30,13 @@ const Config = Object.freeze({
     // 历史记录上限
     MAX_HISTORY: 50,
 
-    // 短弧模式的固定圆心角
-    ARC_SPAN: Math.PI * 15 / 180,
+    // 短弧拖拽落弧的最小圆心角 (弧度, ~1.7°)，防止误触产生退化弧
+    ARC_MIN_SPAN: 0.03,
 
     // 状态提示文案
     TEXT: Object.freeze({
         statusCompass: '圆规: 点击圆心 → 点击定半径',
-        statusCompassArc: '圆规·短弧: 点击圆心 → 点击定弧 (固定15°)',
+        statusCompassArc: '圆规·短弧: 点击圆心 → 按下定起点拖拽 → 松开落弧',
         statusRuler: '直尺: 点击起点 → 点击终点',
         statusMeasure: '测距: 点击起点 → 点击终点 (距离显示在下方中间)',
         statusPoint: '点: 点击画布放置点 (落在曲线上一分为二; 标签工具可命名, 橡皮可删除)',

@@ -388,7 +388,8 @@ const Renderer = (() => {
 
     // ---------- 进行中的预览图形 ----------
     function drawPreview(state) {
-        if (state.phase !== 'started' || !state.startPoint || !state.previewCurve) return;
+        // started (整圆/线型预览) 与 sweep (短弧拖拽扫掠预览) 都要实时显示
+        if ((state.phase !== 'started' && state.phase !== 'sweep') || !state.startPoint || !state.previewCurve) return;
 
         ctx.save();
         const pc = state.previewCurve;
@@ -400,7 +401,7 @@ const Renderer = (() => {
             const view = View.getState();
             const pcScreen = View.worldToScreen(pc.cx, pc.cy);
             const prScreen = pc.r * view.scale;
-            // 整圆 a0..a1 = 0..2π；短弧为固定 15° 的 [a0,a1] 弧段
+            // 整圆 a0..a1 = 0..2π；短弧为 [a0,a1] 弧段 (拖拽定角)
 
             ctx.strokeStyle = Config.COLORS.preview;
             ctx.lineWidth = 2;

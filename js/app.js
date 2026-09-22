@@ -47,11 +47,13 @@
     const state = {
         currentTool: 'ruler',       // 默认线段
         rulerKind: 'segment',       // 直尺模式: segment | ray | line
-        compassKind: 'circle',      // 圆规模式: circle 整圆 | arc 短弧(固定15°)
+        compassKind: 'circle',      // 圆规模式: circle 整圆 | arc 短弧(拖拽定角)
         compassLockRadius: false,   // 圆规锁定模式: 半径固定为最近测距值
+        arcDrag: null,              // 短弧拖拽状态 { a0, sweep, prev } — 按下定起点, 拖拽扫掠, 松开落弧
+        arcR: 0,                    // 短弧拖拽中的半径 (按下时确定)
         lineStyle: 'solid',         // 实线 / 虚线
         theme: 'blueprint',        // 默认蓝图配色
-        phase: 'idle',              // idle | started
+        phase: 'idle',              // idle | started | sweep
         startPoint: null,           // 世界坐标
         measure: null,              // 最近一次测距结果 { a, b, dist, angleDeg }
         mouseWorld: { x: 0, y: 0 }, // 鼠标世界坐标
@@ -262,11 +264,18 @@
     }
 
     // ---------- 状态操作 ----------
+    // 绘制进行中 (started 定起点阶段 / sweep 短弧扫掠阶段)
+    function inDrawingPhase() {
+        return state.phase === 'started' || state.phase === 'sweep';
+    }
+
     // 取消进行中的绘制
     function cancelDrawing() {
         state.phase = 'idle';
         state.startPoint = null;
         state.previewCurve = null;
+        state.arcDrag = null;
+        state.arcR = 0;
     }
 
     // 应用吸附结果
@@ -304,7 +313,7 @@
     }
 
     function setTool(tool) {
-        if (state.phase === 'started') cancelDrawing();
+        if (inDrawingPhase()) cancelDrawing();
         resetErase();
         state.currentTool = tool;
         state.vertexHover = null;
@@ -375,7 +384,7 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
     function setCompassKind(kind) {
         state.compassKind = kind;
         ckindBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.ckind === kind));
-        if (state.phase === 'started') cancelDrawing();
+        if (inDrawingPhase()) cancelDrawing();
         updateStatusForTool();
         render();
     }
@@ -397,7 +406,7 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
     // 切换圆规锁定模式 (半径 = 最近测距值)
     function setCompassLock(on) {
         state.compassLockRadius = on;
-        if (state.phase === 'started') cancelDrawing();
+        if (inDrawingPhase()) cancelDrawing();
         refreshCompassLockBtn();
         updateStatusForTool();
         render();
@@ -483,6 +492,23 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
 
     // ---------- 预览更新 ----------
     function updatePreview() {
+        // 短弧拖拽扫掠: 累计角度增量 (环绕安全), 预览 [a0, a0+sweep] 弧段
+        if (state.phase === 'sweep' && state.arcDrag && state.startPoint) {
+            const target = state.snappedPoint ? state.snappedPoint : state.mouseWorld;
+            const sx = state.startPoint.x, sy = state.startPoint.y;
+            const ang = Math.atan2(target.y - sy, target.x - sx);
+            let d = ang - state.arcDrag.prev;
+            if (d > Math.PI) d -= Math.PI * 2;
+            else if (d < -Math.PI) d += Math.PI * 2;
+            const MAX_SPAN = Math.PI * 2 - 0.01;
+            state.arcDrag.sweep = Math.max(-MAX_SPAN, Math.min(MAX_SPAN, state.arcDrag.sweep + d));
+            state.arcDrag.prev = ang;
+            // 负向扫掠时翻转区间端点, 保证 a1 > a0 (数据/渲染统一约定), 弧点集不变
+            const a0 = state.arcDrag.sweep >= 0 ? state.arcDrag.a0 : state.arcDrag.a0 + state.arcDrag.sweep;
+            const a1 = state.arcDrag.sweep >= 0 ? state.arcDrag.a0 + state.arcDrag.sweep : state.arcDrag.a0;
+            state.previewCurve = { type: 'circle', cx: sx, cy: sy, r: state.arcR, a0: a0, a1: a1, lineStyle: state.lineStyle };
+            return;
+        }
         if (state.phase !== 'started' || !state.startPoint) {
             state.previewCurve = null;
             return;
@@ -494,13 +520,8 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
         if (state.currentTool === 'compass') {
             const r = lockedDist() !== null ? lockedDist() : Math.hypot(target.x - sx, target.y - sy);
             if (r < 1) { state.previewCurve = null; return; }
-            if (state.compassKind === 'arc') {
-                // 短弧预览: 以圆心指向鼠标的方向为中心, 固定 15° (顺/逆各 7.5°)
-                const mid = Math.atan2(target.y - sy, target.x - sx);
-                state.previewCurve = { type: 'circle', cx: sx, cy: sy, r: r, a0: mid - Config.ARC_SPAN / 2, a1: mid + Config.ARC_SPAN / 2, lineStyle: state.lineStyle };
-            } else {
-                state.previewCurve = { type: 'circle', cx: sx, cy: sy, r: r, a0: 0, a1: Math.PI * 2, lineStyle: state.lineStyle };
-            }
+            // 圆心已定 → 整圆预览 (短弧模式下半径/起点在按下时确定)
+            state.previewCurve = { type: 'circle', cx: sx, cy: sy, r: r, a0: 0, a1: Math.PI * 2, lineStyle: state.lineStyle };
         } else {
             const dist = Math.hypot(target.x - sx, target.y - sy);
             state.previewCurve = dist < 1 ? null : Object.assign(Geometry.makeLineCurveData(state.startPoint, target, state.rulerKind), { lineStyle: state.lineStyle });
@@ -658,14 +679,20 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
             state.startPoint = { x: useX, y: useY };
             state.phase = 'started';
 
-            if (state.snappedPoint) {
+            if (state.currentTool === 'compass' && state.compassKind === 'arc') {
+                // 短弧: 圆心已定, 下一按确定半径+起点, 拖拽扫掠, 松开落弧
+                const lk = lockedDist();
+                updateStatus(lk !== null
+                    ? `圆心已定 (半径=${lk.toFixed(2)}) → 按下定弧起点, 拖拽后松开落弧`
+                    : '圆心已定 → 移动定半径, 按下开始画弧, 松开落弧');
+            } else if (state.snappedPoint) {
                 updateStatus(`已吸附${state.snappedLabel} → 选择终点`);
             } else {
                 updateStatus(`起点 → 选择终点`);
             }
         } else if (state.phase === 'started' && state.startPoint) {
             if (state.currentTool === 'compass' && state.compassKind === 'arc') {
-                finishArc(useX, useY);   // 短弧: 直接落一条固定 15° 的弧
+                beginArcDrag(useX, useY);   // 短弧: 按下确定半径+起点, 拖拽扫掠, 松开落弧
             } else if (state.currentTool === 'measure') {
                 finishMeasure(useX, useY);
             } else {
@@ -711,9 +738,9 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
         }
     }
 
-    // 短弧: 第二次点击直接落一条固定 15° 的弧 — 以圆心指向点击点的方向为中心, 顺/逆时针各 7.5°
-    // 锁定模式下半径取测距值 (点击距离仅决定方向)
-    function finishArc(useX, useY) {
+    // 短弧: 按下确定半径 + 弧起点方向 → 拖拽扫掠 (mousemove 累计) → 松开落弧
+    // 锁定模式半径取测距值 (按下距离仅决定方向); 非锁定取按下点到圆心距离
+    function beginArcDrag(useX, useY) {
         const scale = View.getState().scale;
         const sx = state.startPoint.x, sy = state.startPoint.y;
         const locked = lockedDist();
@@ -723,13 +750,31 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
             updateStatusForTool();
             return;
         }
-        const mid = Math.atan2(useY - sy, useX - sx);
+        const a0 = Math.atan2(useY - sy, useX - sx);
+        state.arcR = r;
+        state.arcDrag = { a0: a0, sweep: 0, prev: a0 };
+        state.phase = 'sweep';
+        updateStatus('拖拽扫掠弧线 → 松开落弧 (右键/ESC 取消)');
+    }
+
+    // 松开鼠标落弧: 负向扫掠翻转区间端点, 保证 a1 > a0 (数据/渲染统一约定), 弧点集不变
+    function finishArcDrag() {
+        const sx = state.startPoint.x, sy = state.startPoint.y;
+        const a0 = state.arcDrag.a0;
+        let sweep = state.arcDrag.sweep;
+        // 扫掠过小视为误触 → 保方向取最小圆心角
+        if (Math.abs(sweep) < Config.ARC_MIN_SPAN) {
+            sweep = sweep >= 0 ? Config.ARC_MIN_SPAN : -Config.ARC_MIN_SPAN;
+        }
+        const lo = sweep >= 0 ? a0 : a0 + sweep;
+        const hi = sweep >= 0 ? a0 + sweep : a0;
         Store.saveHistory();
-        const created = Store.makeCircleCurve(sx, sy, r, null, mid - Config.ARC_SPAN / 2, mid + Config.ARC_SPAN / 2);
+        const created = Store.makeCircleCurve(sx, sy, state.arcR, null, lo, hi);
         if (created) created.lineStyle = state.lineStyle;
         Store.refillFills(Geometry.extractFace, [created]);
         cancelDrawing();
         updateStatusForTool();
+        render();
     }
 
     // 测距: 完成一次测量 — 不创建任何图形, 结果显示在底部中间面板
@@ -810,7 +855,7 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
             hideSnapIndicator();
         }
 
-        if (state.phase === 'started') {
+        if (state.phase === 'started' || state.phase === 'sweep') {
             updatePreview();
         }
         render();
@@ -823,6 +868,12 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
             panStart = null;
             canvas.classList.remove('grabbing');
             if (e.button === 1) return;   // 真的是中键释放，直接返回
+        }
+
+        // 短弧拖拽扫掠中松开左键 → 落弧 (拖出画布松开时 mouseleave 也会走到这里)
+        if (state.phase === 'sweep' && state.arcDrag && e.button === 0) {
+            finishArcDrag();
+            return;
         }
 
         // 橡皮擦结束 → 整段移除所有被涂抹的节点区间 (单击与拖动同规则)
@@ -860,7 +911,7 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
     canvas.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         // 右击 = 取消正在进行的绘制，等同 ESC
-        if (state.phase === 'started') {
+        if (inDrawingPhase()) {
             cancelDrawing();
             updateStatusForTool();
             render();
@@ -1021,7 +1072,7 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
                 render();
                 return;
             }
-            if (state.phase === 'started') {
+            if (inDrawingPhase()) {
                 cancelDrawing();
                 updateStatusForTool();
                 render();
