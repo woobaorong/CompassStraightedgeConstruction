@@ -17,6 +17,7 @@
         </div>
             <canvas id="board"></canvas>
             <div class="snap-indicator" id="snapIndicator">吸附</div>
+            <div class="measure-result" id="measureResult" style="display:none"><span id="measureText"></span><button id="measureCloseBtn" title="关闭测距结果">×</button></div>
         </div>
 
         <!-- 右上：工具栏 (图标 + 中文) -->
@@ -32,6 +33,19 @@
                         </svg>
                     </span>
                     <span class="tool-label">圆规</span>
+                </button>
+                <button id="toolMeasure" class="tool-btn" data-tool="measure">
+                    <span class="tool-ico">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <circle cx="12" cy="3.5" r="1.7"/>
+                            <path d="M10.9 5 5 20"/>
+                            <path d="M13.1 5 19 20"/>
+                            <path d="M7.5 13.5h9"/>
+                            <path d="m9.2 11.6-1.9 1.9 1.9 1.9"/>
+                            <path d="m14.8 11.6 1.9 1.9-1.9 1.9"/>
+                        </svg>
+                    </span>
+                    <span class="tool-label">测距</span>
                 </button>
                 <button id="toolRuler" class="tool-btn active" data-tool="ruler">
                     <span class="tool-ico">📏</span>
@@ -99,6 +113,7 @@
             <div class="tool-group sub" id="compassKindGroup" title="圆规绘制模式" style="display:none">
                 <button class="kind-btn active" data-ckind="circle">整圆</button>
                 <button class="kind-btn" data-ckind="arc">短弧</button>
+                <button class="kind-btn" id="compassLockBtn" title="锁定最近测距值为圆规半径" style="display:none">🔒 锁定半径</button>
             </div>
         </div>
 

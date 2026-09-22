@@ -45,6 +45,7 @@ const Renderer = (() => {
         drawErase(state);
         drawIntersectionMarkers();
         drawPoints(state);
+        drawMeasure(state);
         drawPreview(state);
         drawSnapHighlight(state);
         drawVertexHover(state);
@@ -330,6 +331,59 @@ const Renderer = (() => {
             ctx.fillText(p.name, rx + padX, sp.y);
         });
         ctx.restore();
+    }
+
+    // ---------- 测距工具: 预览虚线 / 已测线段 + 距离标签 ----------
+    // 不产生图形数据, 仅在测距工具激活时绘制
+    function drawMeasure(state) {
+        if (state.currentTool !== 'measure') return;
+        const color = Config.COLORS.preview;
+
+        const drawSeg = (a, b, dashed, withLabel) => {
+            const sa = View.worldToScreen(a.x, a.y);
+            const sb = View.worldToScreen(b.x, b.y);
+            ctx.save();
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+            ctx.setLineDash(dashed ? [8, 6] : []);
+            ctx.beginPath();
+            ctx.moveTo(sa.x, sa.y);
+            ctx.lineTo(sb.x, sb.y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            [sa, sb].forEach(sp => {
+                ctx.beginPath();
+                ctx.arc(sp.x, sp.y, 4, 0, 2 * Math.PI);
+                ctx.stroke();
+            });
+            if (withLabel) {
+                const dist = Math.hypot(b.x - a.x, b.y - a.y);
+                const text = dist.toFixed(2);
+                ctx.font = '700 12px system-ui, "Segoe UI", sans-serif';
+                const w = ctx.measureText(text).width;
+                const mx = (sa.x + sb.x) / 2, my = (sa.y + sb.y) / 2;
+                ctx.fillStyle = 'rgba(30, 41, 59, 0.92)';
+                ctx.beginPath();
+                if (ctx.roundRect) ctx.roundRect(mx - w / 2 - 6, my - 20, w + 12, 18, 4);
+                else ctx.rect(mx - w / 2 - 6, my - 20, w + 12, 18);
+                ctx.fill();
+                ctx.fillStyle = '#fbbf24';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(text, mx - w / 2, my - 10);
+            }
+            ctx.restore();
+        };
+
+        // 进行中: 起点 → 鼠标虚线 + 实时距离
+        if (state.phase === 'started' && state.startPoint) {
+            const target = state.snappedPoint ? state.snappedPoint : state.mouseWorld;
+            drawSeg(state.startPoint, target, true, true);
+        }
+
+        // 最近一次测量结果 (工具未切换时保留显示)
+        if (state.measure) {
+            drawSeg(state.measure.a, state.measure.b, false, true);
+        }
     }
 
     // ---------- 进行中的预览图形 ----------

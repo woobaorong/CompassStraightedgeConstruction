@@ -38,6 +38,7 @@ const Config = Object.freeze({
         statusCompass: '圆规: 点击圆心 → 点击定半径',
         statusCompassArc: '圆规·短弧: 点击圆心 → 点击定弧 (固定15°)',
         statusRuler: '直尺: 点击起点 → 点击终点',
+        statusMeasure: '测距: 点击起点 → 点击终点 (距离显示在下方中间)',
         statusEraser: '橡皮: 拖动擦除线段 / 点击标注点删除该点',
         statusFill: '填充: 点击封闭区域填色 · 色板可换颜色',
         fillFail: '未找到封闭区域，无法填充',

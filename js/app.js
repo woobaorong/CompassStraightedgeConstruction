@@ -13,6 +13,10 @@
     const toolEraser = document.getElementById('toolEraser');
     const toolFill = document.getElementById('toolFill');
     const toolVertex = document.getElementById('toolVertex');
+    const toolMeasure = document.getElementById('toolMeasure');
+    const measureResult = document.getElementById('measureResult');
+    const measureText = document.getElementById('measureText');
+    const measureCloseBtn = document.getElementById('measureCloseBtn');
     const fillPalette = document.getElementById('fillPalette');
     const customColor = document.getElementById('customColor');
     const lineStyleCard = document.getElementById('lineStyleCard');
@@ -34,17 +38,21 @@
     const rulerKindGroup = document.getElementById('rulerKindGroup');
     const kindBtns = rulerKindGroup ? Array.from(rulerKindGroup.querySelectorAll('.kind-btn')) : [];
     const compassKindGroup = document.getElementById('compassKindGroup');
-    const ckindBtns = compassKindGroup ? Array.from(compassKindGroup.querySelectorAll('.kind-btn')) : [];
+    const compassLockBtn = document.getElementById('compassLockBtn');
+    // 仅取整圆/短弧模式按钮 (排除锁定半径按钮)
+    const ckindBtns = compassKindGroup ? Array.from(compassKindGroup.querySelectorAll('.kind-btn[data-ckind]')) : [];
 
     // ---------- 应用状态 ----------
     const state = {
         currentTool: 'ruler',       // 默认线段
         rulerKind: 'segment',       // 直尺模式: segment | ray | line
         compassKind: 'circle',      // 圆规模式: circle 整圆 | arc 短弧(固定15°)
+        compassLockRadius: false,   // 圆规锁定模式: 半径固定为最近测距值
         lineStyle: 'solid',         // 实线 / 虚线
         theme: 'blueprint',        // 默认蓝图配色
         phase: 'idle',              // idle | started
         startPoint: null,           // 世界坐标
+        measure: null,              // 最近一次测距结果 { a, b, dist, angleDeg }
         mouseWorld: { x: 0, y: 0 }, // 鼠标世界坐标
         mouseScreen: { x: 0, y: 0 },// 鼠标屏幕坐标
         previewCurve: null,         // 预览曲线 (统一曲线结构，无 id)
@@ -223,8 +231,15 @@
         if (state.currentTool === 'eraser') { updateStatus(Config.TEXT.statusEraser); return; }
         if (state.currentTool === 'fill') { updateStatus(Config.TEXT.statusFill); return; }
         if (state.currentTool === 'vertex') { updateStatus('顶点: 点击节点命名 / 已命名点可改名或留空删除'); return; }
+        if (state.currentTool === 'measure') { updateStatus(Config.TEXT.statusMeasure); return; }
         if (state.currentTool === 'compass') {
-            updateStatus(state.compassKind === 'arc' ? Config.TEXT.statusCompassArc : Config.TEXT.statusCompass);
+            if (state.compassLockRadius && state.measure) {
+                updateStatus(state.compassKind === 'arc'
+                    ? '圆规·锁定短弧: 点击圆心 → 点击定方向 (半径 = ' + state.measure.dist.toFixed(2) + ')'
+                    : '圆规·锁定: 点击放置圆 (半径 = ' + state.measure.dist.toFixed(2) + ')');
+            } else {
+                updateStatus(state.compassKind === 'arc' ? Config.TEXT.statusCompassArc : Config.TEXT.statusCompass);
+            }
             return;
         }
         updateStatus(Config.TEXT.statusRuler);
@@ -292,6 +307,10 @@
         toolEraser.classList.toggle('active', tool === 'eraser');
         toolFill.classList.toggle('active', tool === 'fill');
         if (toolVertex) toolVertex.classList.toggle('active', tool === 'vertex');
+        if (toolMeasure) toolMeasure.classList.toggle('active', tool === 'measure');
+        // 测距结果面板: 常驻显示, 直到点击 × 关闭
+        if (measureResult) measureResult.style.display = state.measure ? '' : 'none';
+        refreshCompassLockBtn();
         // 右侧堆叠面板 (工具栏下方): 线段射线直线(直尺) / 整圆短弧(圆规) / 填充色板(填充) / 实线虚线(直尺·圆规)
         const showKind = (tool === 'ruler');
         const showCKind = (tool === 'compass');
@@ -350,6 +369,29 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
         state.compassKind = kind;
         ckindBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.ckind === kind));
         if (state.phase === 'started') cancelDrawing();
+        updateStatusForTool();
+        render();
+    }
+
+    // 锁定模式下的半径来源: 最近测距值; 未锁定返回 null
+    function lockedDist() {
+        return (state.compassLockRadius && state.measure) ? state.measure.dist : null;
+    }
+
+    // 锁定半径按钮: 仅圆规工具且存在测距结果时可见
+    function refreshCompassLockBtn() {
+        if (!compassLockBtn) return;
+        const show = (state.currentTool === 'compass' && state.measure);
+        compassLockBtn.style.display = show ? '' : 'none';
+        if (show) compassLockBtn.title = '锁定半径: ' + state.measure.dist.toFixed(2) + ' (最近测距值)';
+        compassLockBtn.classList.toggle('active', state.compassLockRadius);
+    }
+
+    // 切换圆规锁定模式 (半径 = 最近测距值)
+    function setCompassLock(on) {
+        state.compassLockRadius = on;
+        if (state.phase === 'started') cancelDrawing();
+        refreshCompassLockBtn();
         updateStatusForTool();
         render();
     }
@@ -443,7 +485,7 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
         const sx = state.startPoint.x, sy = state.startPoint.y;
 
         if (state.currentTool === 'compass') {
-            const r = Math.hypot(target.x - sx, target.y - sy);
+            const r = lockedDist() !== null ? lockedDist() : Math.hypot(target.x - sx, target.y - sy);
             if (r < 1) { state.previewCurve = null; return; }
             if (state.compassKind === 'arc') {
                 // 短弧预览: 以圆心指向鼠标的方向为中心, 固定 15° (顺/逆各 7.5°)
@@ -570,6 +612,23 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
         state.mouseWorld.y = useY;
 
         if (state.phase === 'idle') {
+            // 圆规锁定模式 + 整圆: 一次点击直接放置半径=测距值的圆
+            if (state.currentTool === 'compass' && state.compassKind === 'circle' && lockedDist() !== null) {
+                Store.saveHistory();
+                const created = Store.makeCircleCurve(useX, useY, lockedDist());
+                if (created) created.lineStyle = state.lineStyle;
+                Store.refillFills(Geometry.extractFace, [created]);
+                render();
+                return;
+            }
+            // 测距: 两段式 — 第一次点击定起点, 第二次点击定终点并显示距离
+            if (state.currentTool === 'measure') {
+                state.startPoint = { x: useX, y: useY };
+                state.phase = 'started';
+                updateStatus(state.snappedPoint ? `已吸附${state.snappedLabel} → 点击终点` : '起点已定 → 点击终点');
+                render();
+                return;
+            }
             state.startPoint = { x: useX, y: useY };
             state.phase = 'started';
 
@@ -581,6 +640,8 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
         } else if (state.phase === 'started' && state.startPoint) {
             if (state.currentTool === 'compass' && state.compassKind === 'arc') {
                 finishArc(useX, useY);   // 短弧: 直接落一条固定 15° 的弧
+            } else if (state.currentTool === 'measure') {
+                finishMeasure(useX, useY);
             } else {
                 finishDrawing(useX, useY);
             }
@@ -625,10 +686,12 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
     }
 
     // 短弧: 第二次点击直接落一条固定 15° 的弧 — 以圆心指向点击点的方向为中心, 顺/逆时针各 7.5°
+    // 锁定模式下半径取测距值 (点击距离仅决定方向)
     function finishArc(useX, useY) {
         const scale = View.getState().scale;
         const sx = state.startPoint.x, sy = state.startPoint.y;
-        const r = Math.hypot(useX - sx, useY - sy);
+        const locked = lockedDist();
+        const r = locked !== null ? locked : Math.hypot(useX - sx, useY - sy);
         if (r * scale < Config.MIN_SHAPE_SCREEN) {
             cancelDrawing();
             updateStatusForTool();
@@ -641,6 +704,30 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
         Store.refillFills(Geometry.extractFace, [created]);
         cancelDrawing();
         updateStatusForTool();
+    }
+
+    // 测距: 完成一次测量 — 不创建任何图形, 结果显示在底部中间面板
+    function finishMeasure(useX, useY) {
+        const a = { x: state.startPoint.x, y: state.startPoint.y };
+        const b = { x: useX, y: useY };
+        const dist = Math.hypot(b.x - a.x, b.y - a.y);
+        const angleDeg = (Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI).toFixed(1);
+        state.measure = { a: a, b: b, dist: dist, angleDeg: angleDeg };
+        if (measureText) {
+            measureText.innerHTML = '距离 <span class="m-val">' + dist.toFixed(2) + '</span>';
+            measureResult.style.display = '';
+        }
+        refreshCompassLockBtn();
+        cancelDrawing();
+        updateStatusForTool();
+    }
+
+    // 关闭测距结果 (× 按钮): 清除面板 + 画布上的测量线 + 锁定半径来源
+    function closeMeasure() {
+        state.measure = null;
+        if (measureResult) measureResult.style.display = 'none';
+        refreshCompassLockBtn();
+        render();
     }
 
     function onMouseMove(e) {
@@ -757,10 +844,13 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
     toolCompass.addEventListener('click', () => setTool('compass'));
     toolRuler.addEventListener('click', () => setTool('ruler'));
     toolEraser.addEventListener('click', () => setTool('eraser'));
+    if (toolMeasure) toolMeasure.addEventListener('click', () => setTool('measure'));
+    if (measureCloseBtn) measureCloseBtn.addEventListener('click', closeMeasure);
     toolFill.addEventListener('click', () => setTool('fill'));
     if (toolVertex) toolVertex.addEventListener('click', () => setTool('vertex'));
     kindBtns.forEach(btn => btn.addEventListener('click', () => setRulerKind(btn.dataset.kind)));
     ckindBtns.forEach(btn => btn.addEventListener('click', () => setCompassKind(btn.dataset.ckind)));
+    if (compassLockBtn) compassLockBtn.addEventListener('click', () => setCompassLock(!state.compassLockRadius));
     styleBtns.forEach(btn => btn.addEventListener('click', () => setLineStyle(btn.dataset.style)));
     swatchBtns.forEach(btn => btn.addEventListener('click', () => setFillColor(btn.dataset.color, btn)));
     customColor.addEventListener('input', (e) => setFillColor(e.target.value, null));
