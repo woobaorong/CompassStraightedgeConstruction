@@ -13,6 +13,7 @@
     const toolEraser = document.getElementById('toolEraser');
     const toolFill = document.getElementById('toolFill');
     const toolVertex = document.getElementById('toolVertex');
+    const toolPoint = document.getElementById('toolPoint');
     const toolMeasure = document.getElementById('toolMeasure');
     const measureResult = document.getElementById('measureResult');
     const measureText = document.getElementById('measureText');
@@ -231,6 +232,7 @@
         if (state.currentTool === 'eraser') { updateStatus(Config.TEXT.statusEraser); return; }
         if (state.currentTool === 'fill') { updateStatus(Config.TEXT.statusFill); return; }
         if (state.currentTool === 'vertex') { updateStatus('顶点: 点击节点命名 / 已命名点可改名或留空删除'); return; }
+        if (state.currentTool === 'point') { updateStatus(Config.TEXT.statusPoint); return; }
         if (state.currentTool === 'measure') { updateStatus(Config.TEXT.statusMeasure); return; }
         if (state.currentTool === 'compass') {
             if (state.compassLockRadius && state.measure) {
@@ -307,6 +309,7 @@
         toolEraser.classList.toggle('active', tool === 'eraser');
         toolFill.classList.toggle('active', tool === 'fill');
         if (toolVertex) toolVertex.classList.toggle('active', tool === 'vertex');
+        if (toolPoint) toolPoint.classList.toggle('active', tool === 'point');
         if (toolMeasure) toolMeasure.classList.toggle('active', tool === 'measure');
         // 测距结果面板: 常驻显示, 直到点击 × 关闭
         if (measureResult) measureResult.style.display = state.measure ? '' : 'none';
@@ -612,6 +615,14 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
         state.mouseWorld.y = useY;
 
         if (state.phase === 'idle') {
+            // 点工具: 单击直接放置一个点 (吸附生效), 可被标签工具命名、橡皮删除
+            if (state.currentTool === 'point') {
+                Store.saveHistory();
+                Store.addPoint(useX, useY, '');
+                updateStatus(state.snappedPoint ? `已吸附${state.snappedLabel} → 放置点` : '已放置点');
+                render();
+                return;
+            }
             // 圆规锁定模式 + 整圆: 一次点击直接放置半径=测距值的圆
             if (state.currentTool === 'compass' && state.compassKind === 'circle' && lockedDist() !== null) {
                 Store.saveHistory();
@@ -848,6 +859,7 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
     if (measureCloseBtn) measureCloseBtn.addEventListener('click', closeMeasure);
     toolFill.addEventListener('click', () => setTool('fill'));
     if (toolVertex) toolVertex.addEventListener('click', () => setTool('vertex'));
+    if (toolPoint) toolPoint.addEventListener('click', () => setTool('point'));
     kindBtns.forEach(btn => btn.addEventListener('click', () => setRulerKind(btn.dataset.kind)));
     ckindBtns.forEach(btn => btn.addEventListener('click', () => setCompassKind(btn.dataset.ckind)));
     if (compassLockBtn) compassLockBtn.addEventListener('click', () => setCompassLock(!state.compassLockRadius));
