@@ -358,7 +358,7 @@ const Renderer = (() => {
             });
             if (withLabel) {
                 const dist = Math.hypot(b.x - a.x, b.y - a.y);
-                const text = dist.toFixed(2);
+                const text = (dist / 10).toFixed(2);
                 ctx.font = '700 12px system-ui, "Segoe UI", sans-serif';
                 const w = ctx.measureText(text).width;
                 const mx = (sa.x + sb.x) / 2, my = (sa.y + sb.y) / 2;
@@ -452,6 +452,29 @@ const Renderer = (() => {
                 ctx.arc(sp.x, sp.y, 4, 0, 2 * Math.PI);
                 ctx.fill();
             });
+            // 线段长度标签 (仅 segment/ray 有有意义长度; 无限 line 不显示)
+            if (pc.kind === 'segment' || pc.kind === 'ray') {
+                const targetWorld = state.snappedPoint ? state.snappedPoint : state.mouseWorld;
+                const tA = state.startPoint;
+                const tB = targetWorld;
+                const sa = View.worldToScreen(tA.x, tA.y);
+                const sb = View.worldToScreen(tB.x, tB.y);
+                const dist = Math.hypot(tB.x - tA.x, tB.y - tA.y);
+                if (dist > 1) {
+                    const text = (dist / 10).toFixed(2);
+                    ctx.font = '700 12px system-ui, "Segoe UI", sans-serif';
+                    const w = ctx.measureText(text).width;
+                    const mx = (sa.x + sb.x) / 2, my = (sa.y + sb.y) / 2;
+                    ctx.fillStyle = 'rgba(30, 41, 59, 0.92)';
+                    ctx.beginPath();
+                    if (ctx.roundRect) ctx.roundRect(mx - w / 2 - 6, my - 20, w + 12, 18, 4);
+                    else ctx.rect(mx - w / 2 - 6, my - 20, w + 12, 18);
+                    ctx.fill();
+                    ctx.fillStyle = '#fbbf24';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(text, mx - w / 2, my - 10);
+                }
+            }
         }
         ctx.restore();
     }

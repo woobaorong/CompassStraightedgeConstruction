@@ -239,9 +239,10 @@
         if (state.currentTool === 'measure') { updateStatus(Config.TEXT.statusMeasure); return; }
         if (state.currentTool === 'compass') {
             if (state.compassLockRadius && state.measure) {
+                const rLabel = (state.measure.dist / 10).toFixed(2);
                 updateStatus(state.compassKind === 'arc'
-                    ? '圆规·锁定短弧: 点击圆心 → 点击定方向 (半径 = ' + state.measure.dist.toFixed(2) + ')'
-                    : '圆规·锁定: 点击放置圆 (半径 = ' + state.measure.dist.toFixed(2) + ')');
+                    ? '圆规·锁定短弧: 点击圆心 → 点击定方向 (半径 = ' + rLabel + ')'
+                    : '圆规·锁定: 点击放置圆 (半径 = ' + rLabel + ')');
             } else {
                 updateStatus(state.compassKind === 'arc' ? Config.TEXT.statusCompassArc : Config.TEXT.statusCompass);
             }
@@ -399,7 +400,7 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
         if (!compassLockBtn) return;
         const show = (state.currentTool === 'compass' && state.measure);
         compassLockBtn.style.display = show ? '' : 'none';
-        if (show) compassLockBtn.title = '锁定半径: ' + state.measure.dist.toFixed(2) + ' (最近测距值)';
+        if (show) compassLockBtn.title = '锁定半径: ' + (state.measure.dist / 10).toFixed(2) + ' (最近测距值)';
         compassLockBtn.classList.toggle('active', state.compassLockRadius);
     }
 
@@ -785,7 +786,7 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
         const angleDeg = (Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI).toFixed(1);
         state.measure = { a: a, b: b, dist: dist, angleDeg: angleDeg };
         if (measureText) {
-            measureText.innerHTML = '距离 <span class="m-val">' + dist.toFixed(2) + '</span>';
+            measureText.innerHTML = '距离 <span class="m-val">' + (dist / 10).toFixed(2) + '</span>';
             measureResult.style.display = '';
         }
         refreshCompassLockBtn();
