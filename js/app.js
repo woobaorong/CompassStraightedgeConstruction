@@ -317,6 +317,11 @@
         if (inDrawingPhase()) cancelDrawing();
         resetErase();
         state.currentTool = tool;
+        // 进入圆规工具: 默认短弧 + 虚线
+        if (tool === 'compass') {
+            setCompassKind('arc');
+            setLineStyle('dashed');
+        }
         state.vertexHover = null;
         toolCompass.classList.toggle('active', tool === 'compass');
         toolRuler.classList.toggle('active', tool === 'ruler');

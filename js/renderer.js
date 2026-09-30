@@ -11,6 +11,7 @@ const Renderer = (() => {
     let W = 0;            // 画布宽 (CSS 像素，坐标计算均基于此)
     let H = 0;            // 画布高 (CSS 像素)
     let currentState = null;  // 最近一次 render 传入的状态，供各 draw* 子函数读取
+    const labelDirCache = new Map();  // 点标注避让方向缓存: pointId -> { idx, x, y } — 生成瞬间按当时缩放算一次并永久缓存, 之后不随缩放改变
 
     function init(canvas) {
         canvasEl = canvas;
@@ -149,8 +150,8 @@ const Renderer = (() => {
             ctx.lineTo(sb.x, sb.y);
             ctx.stroke();
 
-            // 真实端点圆点 (屏幕尺寸固定) — 隐藏点开关开启时跳过
-            if (!currentState.hidePoints) {
+            // 真实端点圆点 (屏幕尺寸固定) — 隐藏点开关开启时跳过; 非蓝图模式不渲染
+            if (!currentState.hidePoints && currentState.theme === 'blueprint') {
                 ctx.fillStyle = theme.lineEndpoint;
                 Geometry.curveEndpoints(c).forEach(e => {
                     const sp = View.worldToScreen(e.x, e.y);
@@ -168,8 +169,8 @@ const Renderer = (() => {
                 ctx.stroke();
             }
 
-            // 圆心 — 红色与其他点统一 — 隐藏点开关开启时跳过
-            if (!currentState.hidePoints) {
+            // 圆心 — 红色与其他点统一 — 隐藏点开关开启时跳过; 非蓝图模式不渲染
+            if (!currentState.hidePoints && currentState.theme === 'blueprint') {
                 ctx.fillStyle = theme.lineEndpoint;
                 ctx.beginPath();
                 ctx.arc(cScreen.x, cScreen.y, 4, 0, 2 * Math.PI);
@@ -277,6 +278,7 @@ const Renderer = (() => {
     // ---------- 交点标记 (任意两类曲线之间) ----------
     function drawIntersectionMarkers() {
         if (currentState.hidePoints) return;   // 隐藏点开关: 交点标记也不显示
+        if (currentState.theme !== 'blueprint') return;   // 非蓝图模式: 交点不渲染
         const curves = Store.getCurves();
         const theme = Config.THEME[(currentState && currentState.theme) || 'default'];
         ctx.save();
@@ -294,6 +296,27 @@ const Renderer = (() => {
         ctx.restore();
     }
 
+    // 全部曲线的屏幕坐标采样点 (标注避让的碰撞检测用)
+    function curveScreenSamples() {
+        const scale = View.getState().scale;
+        const out = [];
+        Store.getCurves().forEach(c => {
+            const pts = Geometry.sampleCurve(c, scale, 4);
+            if (c.type === 'line' && pts.length === 2) {
+                // 直线只采样两端点, 按屏幕距离加密到 ~5px
+                const a = View.worldToScreen(pts[0].x, pts[0].y);
+                const b = View.worldToScreen(pts[1].x, pts[1].y);
+                const n = Math.max(2, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 5));
+                for (let i = 0; i <= n; i++) {
+                    out.push({ x: a.x + (b.x - a.x) * i / n, y: a.y + (b.y - a.y) * i / n });
+                }
+            } else {
+                pts.forEach(p => out.push(View.worldToScreen(p.x, p.y)));
+            }
+        });
+        return out;
+    }
+
     // ---------- 独立点实体 (已命名顶点) 与标注 ----------
     // 点是独立对象: 即使来源曲线已被删除，点标记与标注文字仍然保留。
     // 隐藏点开关同时隐藏点标记与标注文字。
@@ -303,32 +326,68 @@ const Renderer = (() => {
         if (!pts.length) return;
         const theme = Config.THEME[(currentState && currentState.theme) || 'default'];
 
-        // 点标记 (与线段端点同款样式)
+        // 点标记 (与线段端点同款样式) — 非蓝图模式仅已命名 (标记) 的点显示红点
         ctx.fillStyle = theme.lineEndpoint;
         pts.forEach(p => {
+            if (currentState.theme !== 'blueprint' && !p.name) return;
             const sp = View.worldToScreen(p.x, p.y);
             ctx.beginPath();
             ctx.arc(sp.x, sp.y, 3.5, 0, 2 * Math.PI);
             ctx.fill();
         });
 
-        // 标注文字
+        // 标注文字 (无背景): 生成瞬间按当时的缩放比例做一次避让计算并永久缓存方向;
+        // 之后缩放/平移一律沿用已定方向, 不再重算 (只有点位本身移动才重新计算)。
+        // 候选位为内外两圈 × 8 方向; 全部被线条占用时取压线最少的候选 (并列取优先级靠前者)。
         ctx.save();
-        ctx.font = '600 12px system-ui, "Segoe UI", sans-serif';
+        ctx.font = '700 14px system-ui, "Segoe UI", sans-serif';
         ctx.textBaseline = 'middle';
+        let samples = null;   // 惰性构建: 只有需要(重)算避让方向时才采样全部曲线
+        const getSamples = () => (samples || (samples = curveScreenSamples()));
+        const MARGIN = 2;   // 碰撞检测外扩 (px)
         pts.forEach(p => {
             if (!p.name) return;
             const sp = View.worldToScreen(p.x, p.y);
             const w = ctx.measureText(p.name).width;
-            ctx.fillStyle = theme.vertexLabelBg;
-            const padX = 5, h = 18;
-            const rx = sp.x + 8, ry = sp.y - h / 2, rw = w + padX * 2;
-            ctx.beginPath();
-            if (ctx.roundRect) ctx.roundRect(rx, ry, rw, h, 4);
-            else ctx.rect(rx, ry, rw, h);
-            ctx.fill();
-            ctx.fillStyle = theme.vertexLabel;
-            ctx.fillText(p.name, rx + padX, sp.y);
+            const h = 16;
+            // 候选文字矩形左上角: 内圈 (gap 7px) 与外圈 (gap 16px) 各 8 方向, 顺序即优先级
+            const cands = [];
+            [[7, 4], [16, 8]].forEach(([gap, d]) => {
+                cands.push(
+                    { x: sp.x + gap,     y: sp.y - h / 2 },      // 右
+                    { x: sp.x - w / 2,   y: sp.y - gap - h },     // 上
+                    { x: sp.x - w / 2,   y: sp.y + gap },         // 下
+                    { x: sp.x - gap - w, y: sp.y - h / 2 },       // 左
+                    { x: sp.x + d,       y: sp.y - d - h },       // 右上
+                    { x: sp.x - d - w,   y: sp.y - d - h },       // 左上
+                    { x: sp.x + d,       y: sp.y + d },           // 右下
+                    { x: sp.x - d - w,   y: sp.y + d }            // 左下
+                );
+            });
+            let cached = labelDirCache.get(p.id);
+            if (!cached || cached.x !== p.x || cached.y !== p.y) {
+                const s = getSamples();
+                const hits = (r) => {
+                    let n = 0;
+                    for (let i = 0; i < s.length; i++) {
+                        const q = s[i];
+                        if (q.x >= r.x - MARGIN && q.x <= r.x + w + MARGIN &&
+                            q.y >= r.y - MARGIN && q.y <= r.y + h + MARGIN) n++;
+                    }
+                    return n;
+                };
+                let idx = 0, best = Infinity;
+                for (let i = 0; i < cands.length; i++) {
+                    const n = hits(cands[i]);
+                    if (n === 0) { idx = i; break; }      // 完全不压线, 按优先级直接采用
+                    if (n < best) { best = n; idx = i; }  // 记录压线最少的候选
+                }
+                cached = { idx: idx, x: p.x, y: p.y };
+                labelDirCache.set(p.id, cached);
+            }
+            const rect = cands[cached.idx];
+            ctx.fillStyle = '#000000';   // 标注文字恒为黑色, 不随主题切换
+            ctx.fillText(p.name, rect.x, rect.y + h / 2);
         });
         ctx.restore();
     }
@@ -359,17 +418,17 @@ const Renderer = (() => {
             if (withLabel) {
                 const dist = Math.hypot(b.x - a.x, b.y - a.y);
                 const text = (dist / 10).toFixed(2);
-                ctx.font = '700 12px system-ui, "Segoe UI", sans-serif';
+                ctx.font = '700 13px system-ui, "Segoe UI", sans-serif';
                 const w = ctx.measureText(text).width;
                 const mx = (sa.x + sb.x) / 2, my = (sa.y + sb.y) / 2;
-                ctx.fillStyle = 'rgba(30, 41, 59, 0.92)';
-                ctx.beginPath();
-                if (ctx.roundRect) ctx.roundRect(mx - w / 2 - 6, my - 20, w + 12, 18, 4);
-                else ctx.rect(mx - w / 2 - 6, my - 20, w + 12, 18);
-                ctx.fill();
-                ctx.fillStyle = '#fbbf24';
+                // 无背景: 深色描边光晕保证明暗背景上都可读
                 ctx.textBaseline = 'middle';
-                ctx.fillText(text, mx - w / 2, my - 10);
+                ctx.lineWidth = 3;
+                ctx.lineJoin = 'round';
+                ctx.strokeStyle = 'rgba(15, 23, 42, 0.85)';
+                ctx.strokeText(text, mx - w / 2, my - 12);
+                ctx.fillStyle = '#fbbf24';
+                ctx.fillText(text, mx - w / 2, my - 12);
             }
             ctx.restore();
         };
@@ -462,17 +521,17 @@ const Renderer = (() => {
                 const dist = Math.hypot(tB.x - tA.x, tB.y - tA.y);
                 if (dist > 1) {
                     const text = (dist / 10).toFixed(2);
-                    ctx.font = '700 12px system-ui, "Segoe UI", sans-serif';
+                    ctx.font = '700 13px system-ui, "Segoe UI", sans-serif';
                     const w = ctx.measureText(text).width;
                     const mx = (sa.x + sb.x) / 2, my = (sa.y + sb.y) / 2;
-                    ctx.fillStyle = 'rgba(30, 41, 59, 0.92)';
-                    ctx.beginPath();
-                    if (ctx.roundRect) ctx.roundRect(mx - w / 2 - 6, my - 20, w + 12, 18, 4);
-                    else ctx.rect(mx - w / 2 - 6, my - 20, w + 12, 18);
-                    ctx.fill();
-                    ctx.fillStyle = '#fbbf24';
+                    // 无背景: 深色描边光晕保证明暗背景上都可读
                     ctx.textBaseline = 'middle';
-                    ctx.fillText(text, mx - w / 2, my - 10);
+                    ctx.lineWidth = 3;
+                    ctx.lineJoin = 'round';
+                    ctx.strokeStyle = 'rgba(15, 23, 42, 0.85)';
+                    ctx.strokeText(text, mx - w / 2, my - 12);
+                    ctx.fillStyle = '#fbbf24';
+                    ctx.fillText(text, mx - w / 2, my - 12);
                 }
             }
         }
