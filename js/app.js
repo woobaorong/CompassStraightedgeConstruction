@@ -954,6 +954,18 @@ if (fillCard) fillCard.style.display = state.currentTool === 'fill' ? '' : 'none
         URL.revokeObjectURL(a.href);
     });
     if (importBtn) importBtn.addEventListener('click', () => importFile.click());
+
+    // ---------- 关于弹框 (点击左上角 LOGO) ----------
+    const brandMark = document.getElementById('brandMark');
+    const aboutModal = document.getElementById('aboutModal');
+    const aboutCloseBtn = document.getElementById('aboutCloseBtn');
+    if (brandMark && aboutModal) {
+        brandMark.addEventListener('click', () => { aboutModal.style.display = 'flex'; });
+        if (aboutCloseBtn) aboutCloseBtn.addEventListener('click', () => { aboutModal.style.display = 'none'; });
+        aboutModal.addEventListener('click', (e) => {   // 点击遮罩空白处关闭
+            if (e.target === aboutModal) aboutModal.style.display = 'none';
+        });
+    }
     if (importFile) importFile.addEventListener('change', (e) => {
         const file = e.target.files && e.target.files[0];
         importFile.value = '';   // 允许重复选择同一文件

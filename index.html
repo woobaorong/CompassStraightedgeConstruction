@@ -12,7 +12,7 @@
         <div class="canvas-wrapper">
         <!-- 左上：导入 / 导出 (图形数据 JSON) -->
         <div class="corner-panel top-left actions">
-            <span class="brand-mark" title="CSC尺规作图 — Compass &amp; Straightedge Construction">
+            <span class="brand-mark" id="brandMark" title="CSC尺规作图 — Compass &amp; Straightedge Construction" role="button">
                 <svg viewBox="0 0 64 64" width="33" height="33" aria-hidden="true">
                     <rect width="64" height="64" rx="13" fill="#10141d"/>
                     <path d="M13 34 L32 53 L51 34" fill="none" stroke="#eab308" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -48,7 +48,7 @@
                             <path d="M7.1 14.6a8.2 8.2 0 0 0 9.8 0"/>
                         </svg>
                     </span>
-                    <span class="tool-label">画圆</span>
+                    <span class="tool-label">画弧</span>
                 </button>
 
                  <button id="toolPoint" class="tool-btn" data-tool="point" title="画点: 单击画布放置一个点 (可吸附到端点/交点/网格)">
@@ -147,7 +147,7 @@
             <div class="status" id="statusMsg" style="display:none"></div>
             <label class="toggle-wrap" title="绘制时方向接近水平/垂直 (0.5°内) 自动吸附到轴线">
                 <input type="checkbox" id="axisSnapToggle" checked>
-                横平竖直
+                横竖吸附
             </label>
             <label class="toggle-wrap" title="吸附到端点/交点/圆心/线上/圆周；关闭后仅保留网格与横平竖直吸附">
                 <input type="checkbox" id="circleSnapToggle" checked>
@@ -173,6 +173,22 @@
 
         <!-- 沉浸模式退出按钮 -->
         <button id="exitImmersiveBtn" class="immersive-exit" title="退出沉浸模式">⛶ 退出沉浸</button>
+    </div>
+
+    <!-- 关于弹框 (点击左上角 LOGO) -->
+    <div class="modal-overlay" id="aboutModal" style="display:none">
+        <div class="modal-card">
+            <button class="modal-close" id="aboutCloseBtn" title="关闭">×</button>
+            <svg viewBox="0 0 64 64" width="46" height="46" aria-hidden="true">
+                <rect width="64" height="64" rx="13" fill="#10141d"/>
+                <path d="M13 34 L32 53 L51 34" fill="none" stroke="#eab308" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M32 9 L17 50 M32 9 L47 50" fill="none" stroke="#7a9eff" stroke-width="5" stroke-linecap="round"/>
+                <circle cx="32" cy="8.5" r="3.6" fill="#7a9eff"/>
+                <path d="M16.5 38.5 L23.5 45.5 M40.5 45.5 L47.5 38.5" fill="none" stroke="#eab308" stroke-width="5" stroke-linecap="round"/>
+                <text x="32" y="40.5" font-family="Georgia, 'Times New Roman', serif" font-size="15" font-weight="bold" text-anchor="middle" fill="#f3f4f6">G</text>
+            </svg>
+            <p class="modal-text">个人作品，请勿商用。<br>欢迎提意见和需求。<br>微信 / 手机：<b>18252860951</b><br>请先注明来意。</p>
+        </div>
     </div>
 
     <!-- 脚本按依赖顺序加载 -->

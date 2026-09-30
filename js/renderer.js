@@ -568,7 +568,7 @@ const Renderer = (() => {
 
             ctx.strokeStyle = Config.COLORS.preview;
             ctx.lineWidth = 2;
-            ctx.setLineDash([8, 6]);
+            ctx.setLineDash(state.lineStyle === 'dashed' ? [8, 6] : []);   // 预览跟随当前线型: 实线→蓝色实线, 虚线→蓝色虚线
             ctx.beginPath();
             ctx.arc(pcScreen.x, pcScreen.y, prScreen, pc.a0, pc.a1);
             ctx.stroke();
@@ -591,7 +591,7 @@ const Renderer = (() => {
             ctx.arc(targetScreen.x, targetScreen.y, 3, 0, 2 * Math.PI);
             ctx.fill();
         } else {
-            // 线型预览: 复用曲线绘制 (含视口裁剪)，虚线样式
+            // 线型预览: 复用曲线绘制 (含视口裁剪)，跟随当前线型
             const clip = Geometry.clipLineToView(pc, worldViewport());
             if (clip) {
                 const a = Geometry.curvePointAt(pc, clip.tA);
@@ -600,7 +600,7 @@ const Renderer = (() => {
                 const sb = View.worldToScreen(b.x, b.y);
                 ctx.strokeStyle = Config.COLORS.preview;
                 ctx.lineWidth = 2;
-                ctx.setLineDash([8, 6]);
+                ctx.setLineDash(state.lineStyle === 'dashed' ? [8, 6] : []);
                 ctx.beginPath();
                 ctx.moveTo(sa.x, sa.y);
                 ctx.lineTo(sb.x, sb.y);

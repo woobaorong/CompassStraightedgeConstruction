@@ -556,4 +556,29 @@ body.immersive .immersive-exit:hover { background: rgba(60, 60, 60, 0.85); }
     display: inline-flex;
     align-items: center;
     margin-right: 2px;
+    cursor: pointer;
 }
+
+/* ---------- 关于弹框 (点击左上角 LOGO) ---------- */
+.modal-overlay {
+    position: fixed; inset: 0; z-index: 300;
+    background: rgba(8, 12, 20, 0.55);
+    display: flex; align-items: center; justify-content: center;
+}
+.modal-card {
+    position: relative;
+    width: 320px; max-width: calc(100vw - 48px);
+    background: #fff; border-radius: 14px;
+    padding: 26px 24px 22px;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, .35);
+    text-align: center;
+}
+.modal-close {
+    position: absolute; top: 10px; right: 10px;
+    width: 28px; height: 28px; border: none; border-radius: 50%;
+    background: #eef1f5; color: #475569; font-size: 16px; line-height: 1;
+    cursor: pointer;
+}
+.modal-close:hover { background: #e2e7ee; color: #1e293b; }
+.modal-text { font-size: 14px; line-height: 2; color: #334155; margin: 14px 0 0; }
+.modal-text b { color: #10141d; }
