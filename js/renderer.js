@@ -48,6 +48,7 @@ const Renderer = (() => {
         drawPoints(state);
         drawMeasure(state);
         drawPreview(state);
+        drawCompass(state);
         drawSnapHighlight(state);
         drawVertexHover(state);
         drawStartMarker(state);
@@ -293,6 +294,109 @@ const Renderer = (() => {
                 });
             }
         }
+        ctx.restore();
+    }
+
+    // ---------- 圆规拟真指示 (圆规工具绘制中) ----------
+    // 机身(铰链+手柄+旋钮) / 针脚 / 铅笔脚 为三张 SVG 材质图 (金属渐变), 铰链处旋转缩放拼装:
+    // 针脚钉在圆心, 笔脚落在鼠标方向; 开合角随半径变化, 半径锁定 / 短弧扫掠时只随方向旋转。
+    const COMPASS_LEG_LEN = 118;   // SVG 脚图内枢轴到足尖的原生长度 (px)
+    const compassImg = (() => {
+        const mk = (svg) => {
+            const i = new Image();
+            i.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+            return i;
+        };
+        // 机身: viewBox 0 0 64 84, 铰链圆盘圆心 (32,76), 手柄朝上
+        const BODY = '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="84" viewBox="0 0 64 84">' +
+            '<defs><linearGradient id="bm" x1="24" y1="0" x2="40" y2="0" gradientUnits="userSpaceOnUse">' +
+            '<stop offset="0" stop-color="#eef2f6"/><stop offset=".45" stop-color="#9aa5b1"/>' +
+            '<stop offset=".7" stop-color="#6f7a86"/><stop offset="1" stop-color="#c6cdd6"/></linearGradient>' +
+            '<radialGradient id="kb" cx=".35" cy=".3" r="1">' +
+            '<stop offset="0" stop-color="#f4f7fa"/><stop offset=".55" stop-color="#b7c0ca"/>' +
+            '<stop offset="1" stop-color="#5f6a76"/></radialGradient></defs>' +
+            '<rect x="28" y="38" width="8" height="40" rx="3" fill="url(#bm)" stroke="#39424d" stroke-width="1"/>' +
+            '<line x1="28.5" y1="46" x2="35.5" y2="46" stroke="#4a545f" stroke-width="1"/>' +
+            '<line x1="28.5" y1="52" x2="35.5" y2="52" stroke="#4a545f" stroke-width="1"/>' +
+            '<line x1="28.5" y1="58" x2="35.5" y2="58" stroke="#4a545f" stroke-width="1"/>' +
+            '<circle cx="32" cy="32" r="9" fill="url(#kb)" stroke="#39424d" stroke-width="1"/>' +
+            '<circle cx="32" cy="30" r="2.6" fill="#d7dde4" opacity=".85"/>' +
+            '<circle cx="32" cy="76" r="8" fill="url(#bm)" stroke="#39424d" stroke-width="1"/>' +
+            '<circle cx="32" cy="76" r="3" fill="#39424d"/>' +
+            '<line x1="30" y1="74" x2="34" y2="78" stroke="#aab4bf" stroke-width="1"/></svg>';
+        // 针脚: viewBox 0 0 20 124, 枢轴 (10,2), 锥形金属杆 + 钢针尖 (10,120)
+        const NEEDLE = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="124" viewBox="0 0 20 124">' +
+            '<defs><linearGradient id="lm" x1="6" y1="0" x2="14" y2="0" gradientUnits="userSpaceOnUse">' +
+            '<stop offset="0" stop-color="#f2f5f8"/><stop offset=".4" stop-color="#a7b1bc"/>' +
+            '<stop offset=".65" stop-color="#78828e"/><stop offset="1" stop-color="#c9d0d9"/></linearGradient></defs>' +
+            '<polygon points="6,2 14,2 11.4,98 8.6,98" fill="url(#lm)" stroke="#39424d" stroke-width="1"/>' +
+            '<rect x="7.6" y="97" width="4.8" height="7" rx="1" fill="#57616c" stroke="#39424d" stroke-width=".8"/>' +
+            '<polygon points="9.3,104 10.7,104 10,120" fill="#39424d"/></svg>';
+        // 铅笔脚: 锥形金属杆 + 卡头 + 木杆铅笔 + 铅芯 (10,119.5)
+        const PENCIL = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="124" viewBox="0 0 20 124">' +
+            '<defs><linearGradient id="pm" x1="6" y1="0" x2="14" y2="0" gradientUnits="userSpaceOnUse">' +
+            '<stop offset="0" stop-color="#f2f5f8"/><stop offset=".4" stop-color="#a7b1bc"/>' +
+            '<stop offset=".65" stop-color="#78828e"/><stop offset="1" stop-color="#c9d0d9"/></linearGradient></defs>' +
+            '<polygon points="6,2 14,2 11.4,92 8.6,92" fill="url(#pm)" stroke="#39424d" stroke-width="1"/>' +
+            '<rect x="7.4" y="91" width="5.2" height="9" rx="1" fill="#57616c" stroke="#39424d" stroke-width=".8"/>' +
+            '<line x1="7.4" y1="94" x2="12.6" y2="94" stroke="#39424d" stroke-width=".8"/>' +
+            '<line x1="7.4" y1="97" x2="12.6" y2="97" stroke="#39424d" stroke-width=".8"/>' +
+            '<rect x="7.9" y="100" width="4.2" height="13" fill="#d9a13c" stroke="#8a5f1d" stroke-width=".8"/>' +
+            '<line x1="10" y1="100" x2="10" y2="113" stroke="#b58428" stroke-width=".8"/>' +
+            '<polygon points="7.9,113 12.1,113 10,119.5" fill="#e9d5ae" stroke="#8a5f1d" stroke-width=".8"/>' +
+            '<polygon points="9.2,117.6 10.8,117.6 10,119.5" fill="#23282f"/></svg>';
+        return { body: mk(BODY), needle: mk(NEEDLE), pencil: mk(PENCIL) };
+    })();
+
+    function drawCompass(state) {
+        if (state.currentTool !== 'compass' || state.phase === 'idle' || !state.startPoint) return;
+        const C = state.startPoint;
+        let P = state.snappedPoint || state.mouseWorld;
+        let d = Math.hypot(P.x - C.x, P.y - C.y);
+        if (d < 1e-6) return;
+        if (state.phase === 'sweep' && state.arcR) {
+            // 短弧扫掠: 笔脚锁定在 arcR 半径上, 只随方向旋转
+            P = { x: C.x + (P.x - C.x) / d * state.arcR, y: C.y + (P.y - C.y) / d * state.arcR };
+            d = state.arcR;
+        } else if (state.compassLockRadius && state.measure) {
+            // 锁定半径: 笔脚固定在测距半径上, 只随方向旋转
+            P = { x: C.x + (P.x - C.x) / d * state.measure.dist, y: C.y + (P.y - C.y) / d * state.measure.dist };
+            d = state.measure.dist;
+        }
+        const a = View.worldToScreen(C.x, C.y);
+        const b = View.worldToScreen(P.x, P.y);
+        const dScr = Math.hypot(b.x - a.x, b.y - a.y);
+        if (dScr < 8) return;
+        const half = dScr / 2;
+        const leg = half + 48;                             // 脚长 = 半跨 + 顶部余量 (加高, 开合角更窄更拟真)
+        const hh = Math.sqrt(leg * leg - half * half);     // 铰链到两脚连线的距离
+        const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+        let nx = -(b.y - a.y) / dScr, ny = (b.x - a.x) / dScr;   // 单位法线
+        if (ny > 0 || (ny === 0 && nx > 0)) { nx = -nx; ny = -ny; }   // 取屏幕上方一侧
+        const hx = mx + nx * hh, hy = my + ny * hh;
+        const aLen = Math.hypot(a.x - hx, a.y - hy) || 1;  // 铰链到针脚距离
+        const bLen = Math.hypot(b.x - hx, b.y - hy) || 1;  // 铰链到笔脚距离
+        const bodyImg = compassImg.body, needleImg = compassImg.needle, pencilImg = compassImg.pencil;
+        if (!bodyImg.complete || !needleImg.complete || !pencilImg.complete) return;   // SVG 尚未解码
+        // 针脚: 图内枢轴 (10,2) 对准铰链, 旋转缩放后针尖落在圆心
+        ctx.save();
+        ctx.translate(hx, hy);
+        ctx.rotate(Math.atan2(a.y - hy, a.x - hx) - Math.PI / 2);
+        ctx.scale(aLen / COMPASS_LEG_LEN, aLen / COMPASS_LEG_LEN);
+        ctx.drawImage(needleImg, -10, -2, 20, 124);
+        ctx.restore();
+        // 笔脚: 同理, 铅笔尖落在半径方向上
+        ctx.save();
+        ctx.translate(hx, hy);
+        ctx.rotate(Math.atan2(b.y - hy, b.x - hx) - Math.PI / 2);
+        ctx.scale(bLen / COMPASS_LEG_LEN, bLen / COMPASS_LEG_LEN);
+        ctx.drawImage(pencilImg, -10, -2, 20, 124);
+        ctx.restore();
+        // 机身: 铰链圆盘对准 H, 手柄朝屏幕上方, 盖住两脚的枢轴端
+        ctx.save();
+        ctx.translate(hx, hy);
+        ctx.rotate(Math.atan2(ny, nx) + Math.PI / 2);
+        ctx.drawImage(bodyImg, -32, -76, 64, 84);
         ctx.restore();
     }
 
